@@ -1,0 +1,15 @@
+db:
+  host: "127.0.0.1"
+  port: "3306"
+  user: "user_test"
+  password: "password_test"
+  name: "dbname_test"
+
+server:
+  port: ":8081"
+
+kafka:
+  brokers: "localhost:9092"
+  topic: "notifications_test"
+  group_id: "notification-group-test"
+  auto_offset_reset: "earliest"

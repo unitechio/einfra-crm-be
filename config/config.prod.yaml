@@ -1,0 +1,15 @@
+db:
+  host: "your_production_db_host"
+  port: "3306"
+  user: "user_prod"
+  password: "password_prod"
+  name: "dbname_prod"
+
+server:
+  port: ":8080"
+
+kafka:
+  brokers: "kafka-broker1:9092,kafka-broker2:9092"
+  topic: "notifications_prod"
+  group_id: "notification-group-prod"
+  auto_offset_reset: "earliest"

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  storageClassName: nfs-storage # Tells Kubernetes to use our NFS StorageClass
+  accessModes:
+    - ReadWriteOnce # MySQL only needs one pod writing at a time
+  resources:
+    requests:
+      storage: 5Gi # Request 5 GB of storage for MySQL
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+spec:
+  storageClassName: nfs-storage # Also use the NFS StorageClass
+  accessModes:
+    - ReadWriteOnce # Minio deployment with 1 replica also uses RWO
+  resources:
+    requests:
+      storage: 10Gi # Request 10 GB of storage for Minio

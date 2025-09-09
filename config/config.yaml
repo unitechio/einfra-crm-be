@@ -1,0 +1,26 @@
+
+server:
+  port: ":8080"
+
+db:
+  postgres_url: "postgres://user:password@localhost:5432/mydatabase?sslmode=disable"
+
+auth:
+  google:
+    client_id: "YOUR_GOOGLE_CLIENT_ID"
+    client_secret: "YOUR_GOOGLE_CLIENT_SECRET"
+    redirect_url: "http://localhost:8080/auth/google/callback"
+  azure:
+    client_id: "YOUR_AZURE_CLIENT_ID"
+    client_secret: "YOUR_AZURE_CLIENT_SECRET"
+    redirect_url: "http://localhost:8080/auth/azure/callback"
+    tenant_id: "YOUR_AZURE_TENANT_ID"
+
+smtp:
+  host: "smtp.example.com"
+  port: 587
+  user: "your_email@example.com"
+  password: "your_email_password"
+
+storage:
+  image_path: "uploads/images"

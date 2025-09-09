@@ -1,0 +1,19 @@
+
+db:
+  host: "127.0.0.1"
+  port: "3306"
+  user: "user_dev"
+  password: "password_dev"
+  name: "dbname_dev"
+
+server:
+  port: ":8080"
+
+kafka:
+  brokers: "localhost:9092"
+  topic: "notifications_dev"
+  group_id: "notification-group-dev"
+  auto_offset_reset: "earliest"
+
+logger:
+  level: "debug"

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  GIN_MODE: release
+  DB_HOST: mysql-service # The name of the MySQL service we will create
+  DB_PORT: "3306"
+  REDIS_HOST: redis-service # The name of the Redis service
+  REDIS_PORT: "6379"
+  MINIO_ENDPOINT: minio-service:9000 # The name of the Minio service
+  MINIO_USE_SSL: "false"

@@ -1,0 +1,24 @@
+# Git files
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Go module cache
+vendor/
+
+# Local configuration and environment files
+config.local.yml
+.env
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
