@@ -1,37 +1,95 @@
 package usecase
 
 import (
-	"mymodule/internal/domain"
+	"context"
+	"fmt"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/repository"
 )
 
-type auditUseCase struct {
-	auditRepo domain.AuditRepository
+type AuditUsecase interface {
+	Log(ctx context.Context, log *domain.AuditLog) error
+	LogUserAction(ctx context.Context, userID, username string, action domain.AuditAction, resource, resourceID, description string) error
+	LogSystemAction(ctx context.Context, action domain.AuditAction, resource, resourceID, description string) error
+	GetAuditLog(ctx context.Context, id string) (*domain.AuditLog, error)
+	ListAuditLogs(ctx context.Context, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error)
+	GetUserAuditLogs(ctx context.Context, userID string, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error)
+	GetResourceAuditLogs(ctx context.Context, resource, resourceID string, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error)
+	GetAuditStatistics(ctx context.Context, startDate, endDate time.Time) (*domain.AuditStatistics, error)
+	CleanupOldLogs(ctx context.Context, retentionDays int) error
+	ExportAuditLogs(ctx context.Context, filter domain.AuditFilter, format string) (string, error)
 }
 
-func NewAuditUseCase(auditRepo domain.AuditRepository) domain.AuditService {
-	return &auditUseCase{
+type auditUsecase struct {
+	auditRepo repository.AuditLogRepository
+}
+
+func NewAuditUsecase(auditRepo repository.AuditLogRepository) AuditUsecase {
+	return &auditUsecase{
 		auditRepo: auditRepo,
 	}
 }
 
-func (uc *auditUseCase) Log(c *gin.Context, entry domain.AuditEntry) (domain.AuditEntry, error) {
-	return uc.auditRepo.Add(c, entry)
+func (u *auditUsecase) Log(ctx context.Context, log *domain.AuditLog) error {
+	return u.auditRepo.Create(ctx, log)
 }
 
-func (uc *auditUseCase) GetAll(c *gin.Context) ([]domain.AuditEntry, error) {
-	return uc.auditRepo.GetAll(c)
+func (u *auditUsecase) LogUserAction(ctx context.Context, userID, username string, action domain.AuditAction, resource, resourceID, description string) error {
+	log := &domain.AuditLog{
+		UserID:      &userID,
+		Username:    username,
+		Action:      action,
+		Resource:    resource,
+		ResourceID:  &resourceID,
+		Description: description,
+		CreatedAt:   time.Now(),
+		Success:     true,
+	}
+	return u.auditRepo.Create(ctx, log)
 }
 
-func (uc *auditUseCase) GetByID(c *gin.Context, id string) (domain.AuditEntry, error) {
-	return uc.auditRepo.GetByID(c, id)
+func (u *auditUsecase) LogSystemAction(ctx context.Context, action domain.AuditAction, resource, resourceID, description string) error {
+	log := &domain.AuditLog{
+		Username:    "SYSTEM",
+		Action:      action,
+		Resource:    resource,
+		ResourceID:  &resourceID,
+		Description: description,
+		CreatedAt:   time.Now(),
+		Success:     true,
+	}
+	return u.auditRepo.Create(ctx, log)
 }
 
-func (uc *auditUseCase) Update(c *gin.Context, id string, entry domain.AuditEntry) (domain.AuditEntry, error) {
-	return uc.auditRepo.Update(c, id, entry)
+func (u *auditUsecase) GetAuditLog(ctx context.Context, id string) (*domain.AuditLog, error) {
+	return u.auditRepo.GetByID(ctx, id)
 }
 
-func (uc *auditUseCase) Delete(c *gin.Context, id string) error {
-	return uc.auditRepo.Delete(c, id)
+func (u *auditUsecase) ListAuditLogs(ctx context.Context, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error) {
+	return u.auditRepo.List(ctx, filter)
+}
+
+func (u *auditUsecase) GetUserAuditLogs(ctx context.Context, userID string, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error) {
+	filter.UserID = &userID
+	return u.auditRepo.List(ctx, filter)
+}
+
+func (u *auditUsecase) GetResourceAuditLogs(ctx context.Context, resource, resourceID string, filter domain.AuditFilter) ([]*domain.AuditLog, int64, error) {
+	filter.Resource = resource
+	filter.ResourceID = resourceID
+	return u.auditRepo.List(ctx, filter)
+}
+
+func (u *auditUsecase) GetAuditStatistics(ctx context.Context, startDate, endDate time.Time) (*domain.AuditStatistics, error) {
+	return u.auditRepo.GetStatistics(ctx, startDate, endDate)
+}
+
+func (u *auditUsecase) CleanupOldLogs(ctx context.Context, retentionDays int) error {
+	return u.auditRepo.DeleteOlderThan(ctx, time.Duration(retentionDays)*24*time.Hour)
+}
+
+func (u *auditUsecase) ExportAuditLogs(ctx context.Context, filter domain.AuditFilter, format string) (string, error) {
+	return "", fmt.Errorf("not implemented")
 }

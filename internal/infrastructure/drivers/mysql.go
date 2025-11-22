@@ -8,7 +8,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"mymodule/internal/config"
+	"github.com/unitechio/einfra-be/internal/config"
 )
 
 // NewMySQLConnection creates a new GORM DB instance.

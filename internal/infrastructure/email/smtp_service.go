@@ -11,8 +11,8 @@ import (
 
 	"github.com/jaytaylor/html2text"
 	"gopkg.in/gomail.v2"
-	"mymodule/internal/config"
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // smtpService implements the domain.EmailService interface using an SMTP server.

@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/oauth2"
 	googleoauth "golang.org/x/oauth2/google"
-	"mymodule/internal/config"
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // GoogleProvider implements the OAuthProvider interface for Google.

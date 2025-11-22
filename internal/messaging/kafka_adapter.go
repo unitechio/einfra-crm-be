@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"mymodule/internal/logger"
+	"github.com/unitechio/einfra-be/internal/logger"
 )
 
 const (

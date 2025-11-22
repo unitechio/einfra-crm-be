@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/microsoft"
-	"mymodule/internal/config"
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // AzureProvider implements the OAuthProvider interface for Azure AD.

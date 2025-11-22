@@ -1,8 +1,7 @@
-
 package usecase
 
 import (
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // FeatureFlagUseCase provides the business logic for feature flags.

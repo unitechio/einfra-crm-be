@@ -2,7 +2,7 @@
 package usecase
 
 import (
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // SystemSettingUseCase provides the business logic for system settings.

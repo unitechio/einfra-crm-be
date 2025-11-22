@@ -1,8 +1,6 @@
-
 package domain
 
 import (
-	"context"
 	"time"
 )
 
@@ -27,9 +25,9 @@ const (
 type NotificationPreference string
 
 const (
-	AllMessages      NotificationPreference = "all"
+	AllMessages       NotificationPreference = "all"
 	DirectAndMentions NotificationPreference = "direct"
-	NoMessages       NotificationPreference = "none"
+	NoMessages        NotificationPreference = "none"
 )
 
 // EmailNotificationSettings holds the user's email notification preferences.
@@ -58,7 +56,7 @@ type UserSettings struct {
 	Sidebar  SidebarSettings `json:"sidebar"`
 
 	// Notification Settings
-	NotificationPreference NotificationPreference  `json:"notification_preference"`
+	NotificationPreference NotificationPreference    `json:"notification_preference"`
 	EmailNotifications     EmailNotificationSettings `json:"email_notifications"`
 	UseMobileSettings      bool                      `json:"use_mobile_settings"`
 
@@ -69,16 +67,4 @@ type UserSettings struct {
 
 	// Security Settings
 	TwoFactorEnabled bool `json:"two_factor_enabled"`
-}
-
-// UserSettingsUseCase defines the business logic for user settings.
-type UserSettingsUseCase interface {
-	GetUserSettings(ctx context.Context, userID string) (*UserSettings, error)
-	UpdateUserSettings(ctx context.Context, userID string, settings *UserSettings) error
-}
-
-// UserSettingsRepository defines the storage interface for user settings.
-type UserSettingsRepository interface {
-	GetByUserID(ctx context.Context, userID string) (*UserSettings, error)
-	Update(ctx context.Context, userID string, settings *UserSettings) error
 }

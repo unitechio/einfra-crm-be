@@ -1,102 +1,453 @@
-
 package usecase
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"time"
 
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/auth"
+	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/repository"
 )
 
-// authUsecase implements both AuthUsecase and OAuthUsecase.
+type AuthUsecase interface {
+	Register(ctx context.Context, user *domain.User, password string) (*domain.AuthResponse, error)
+	Login(ctx context.Context, credentials *domain.AuthCredentials, ipAddress, userAgent string) (*domain.AuthResponse, error)
+	Logout(ctx context.Context, token string) error
+	RefreshToken(ctx context.Context, refreshToken string) (*domain.AuthResponse, error)
+	ValidateToken(ctx context.Context, token string) (*domain.User, error)
+	ChangePassword(ctx context.Context, userID string, request *domain.ChangePasswordRequest) error
+	RequestPasswordReset(ctx context.Context, request *domain.PasswordResetRequest) error
+	ResetPassword(ctx context.Context, request *domain.PasswordResetConfirm) error
+	VerifyEmail(ctx context.Context, request *domain.EmailVerificationRequest) error
+	ResendVerificationEmail(ctx context.Context, email string) error
+	GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error)
+	RevokeSession(ctx context.Context, sessionID string) error
+	RevokeAllSessions(ctx context.Context, userID string) error
+	GetOAuthLoginURL(ctx context.Context, provider domain.AuthProvider, redirectURL string) (string, error)
+	HandleOAuthCallback(ctx context.Context, provider domain.AuthProvider, code, state string) (*domain.AuthResponse, error)
+}
+
 type authUsecase struct {
-	userRepo        domain.UserRepository
-	tokenRepo       domain.TokenRepository
-	oauthProviders  map[string]domain.OAuthProvider
+	authRepo            repository.AuthRepository
+	userRepo            repository.UserRepository
+	sessionRepo         repository.SessionRepository
+	loginAttemptRepo    repository.LoginAttemptRepository
+	notificationUsecase NotificationUsecase
+	jwtService          *auth.JWTService
+	cfg                 config.AuthConfig
+	maxFailedAttempts   int
+	lockDuration        time.Duration
 }
 
-// NewAuthUsecase creates a new combined AuthUsecase.
-func NewAuthUsecase(userRepo domain.UserRepository, tokenRepo domain.TokenRepository, providers map[string]domain.OAuthProvider) domain.AuthUsecase {
+func NewAuthUsecase(
+	authRepo repository.AuthRepository,
+	userRepo repository.UserRepository,
+	sessionRepo repository.SessionRepository,
+	loginAttemptRepo repository.LoginAttemptRepository,
+	notificationUsecase domain.NotificationUsecase,
+	cfg config.AuthConfig,
+) AuthUsecase {
 	return &authUsecase{
-		userRepo:        userRepo,
-		tokenRepo:       tokenRepo,
-		oauthProviders:  providers,
+		authRepo:            authRepo,
+		userRepo:            userRepo,
+		sessionRepo:         sessionRepo,
+		loginAttemptRepo:    loginAttemptRepo,
+		notificationUsecase: notificationUsecase,
+		jwtService:          auth.NewJWTService(cfg),
+		cfg:                 cfg,
+		maxFailedAttempts:   5,
+		lockDuration:        30 * time.Minute,
 	}
 }
 
-// Login validates credentials for local users.
-func (uc *authUsecase) Login(username, password string) (*domain.User, string, error) {
-	user, err := uc.userRepo.FindByUsername(username)
+func (u *authUsecase) Register(ctx context.Context, user *domain.User, password string) (*domain.AuthResponse, error) {
+	existingUser, _ := u.userRepo.GetByEmail(ctx, user.Email)
+	if existingUser != nil {
+		return nil, fmt.Errorf("user with this email already exists")
+	}
+
+	existingUser, _ = u.userRepo.GetByUsername(ctx, user.Username)
+	if existingUser != nil {
+		return nil, fmt.Errorf("user with this username already exists")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(password)
 	if err != nil {
-		return nil, "", err
+		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	if user.AuthProvider != domain.AuthProviderLocal {
-		return nil, "", errors.New("user is not a local user")
+	user.Password = hashedPassword
+	user.IsActive = true
+	user.IsEmailVerified = false
+
+	if err := u.userRepo.Create(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if user.PasswordHash != password { // Example check, use bcrypt in production
-		return nil, "", errors.New("invalid credentials")
-	}
-
-	token, err := uc.tokenRepo.GenerateToken(user.ID, user.Role)
+	verificationToken, err := u.jwtService.GenerateRefreshToken()
 	if err != nil {
-		return nil, "", err
-	}
-
-	return user, token, nil
-}
-
-// HandleLogin gets the authentication URL from the specified provider.
-func (uc *authUsecase) HandleLogin(provider string) (string, error) {
-	p, ok := uc.oauthProviders[provider]
-	if !ok {
-		return "", errors.New("invalid oauth provider")
-	}
-	state := "random-state-string" // Should be random and validated
-	return p.GetAuthURL(state), nil
-}
-
-// HandleCallback handles the callback from the OAuth provider.
-func (uc *authUsecase) HandleCallback(ctx context.Context, providerName, code string) (*domain.User, string, error) {
-	p, ok := uc.oauthProviders[providerName]
-	if !ok {
-		return nil, "", errors.New("invalid oauth provider")
-	}
-
-	providerToken, err := p.ExchangeCodeForToken(ctx, code)
-	if err != nil {
-		return nil, "", err
-	}
-
-	userInfo, err := p.GetUserInfo(ctx, providerToken)
-	if err != nil {
-		return nil, "", err
-	}
-
-	provider := domain.AuthProvider(providerName)
-	user, err := uc.userRepo.FindByAuthProvider(provider, userInfo.ID)
-	if err != nil {
-		newUser := &domain.User{
-			Username:       userInfo.Email,
-			Role:           "user",
-			AuthProvider:   provider,
-			AuthProviderID: userInfo.ID,
+		fmt.Printf("Failed to generate verification token: %v\n", err)
+	} else {
+		refreshToken := &domain.RefreshToken{
+			UserID:    user.ID,
+			Token:     verificationToken,
+			ExpiresAt: time.Now().Add(24 * time.Hour),
 		}
-		user, err = uc.userRepo.Create(newUser)
+		_ = u.authRepo.CreateRefreshToken(ctx, refreshToken)
+
+		if u.notificationUsecase != nil {
+			go func() {
+				_ = u.notificationUsecase.SendNotificationFromTemplate(
+					context.Background(),
+					user.ID,
+					"email_verification",
+					map[string]string{
+						"username": user.Username,
+						"token":    verificationToken,
+					},
+				)
+			}()
+		}
+	}
+
+	return u.generateTokens(ctx, user)
+}
+
+func (u *authUsecase) Login(ctx context.Context, credentials *domain.AuthCredentials, ipAddress, userAgent string) (*domain.AuthResponse, error) {
+	failedCount, err := u.loginAttemptRepo.GetFailedAttempts(ctx, credentials.Username, ipAddress, 15*time.Minute)
+	if err == nil && failedCount >= int64(u.maxFailedAttempts) {
+		_ = u.loginAttemptRepo.Create(ctx, &domain.LoginAttempt{
+			Username:   credentials.Username,
+			IPAddress:  ipAddress,
+			UserAgent:  userAgent,
+			Success:    false,
+			FailReason: "Too many failed attempts",
+		})
+		return nil, fmt.Errorf("too many failed login attempts, please try again later")
+	}
+
+	user, err := u.validateCredentials(ctx, credentials.Username, credentials.Password)
+	if err != nil {
+		_ = u.loginAttemptRepo.Create(ctx, &domain.LoginAttempt{
+			Username:   credentials.Username,
+			IPAddress:  ipAddress,
+			UserAgent:  userAgent,
+			Success:    false,
+			FailReason: err.Error(),
+		})
+
+		if user != nil {
+			_ = u.userRepo.IncrementFailedLogin(ctx, user.ID)
+			if user.FailedLoginCount+1 >= u.maxFailedAttempts {
+				lockUntil := time.Now().Add(u.lockDuration)
+				_ = u.userRepo.LockAccount(ctx, user.ID, lockUntil)
+			}
+		}
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	_ = u.userRepo.ResetFailedLogin(ctx, user.ID)
+	_ = u.userRepo.UpdateLastLogin(ctx, user.ID, ipAddress)
+
+	_ = u.loginAttemptRepo.Create(ctx, &domain.LoginAttempt{
+		Username:  user.Username,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Success:   true,
+	})
+
+	authResponse, err := u.generateTokens(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	session := &domain.Session{
+		UserID:       user.ID,
+		Token:        authResponse.AccessToken,
+		IPAddress:    ipAddress,
+		UserAgent:    userAgent,
+		IsActive:     true,
+		LastActivity: time.Now(),
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+	}
+	_ = u.sessionRepo.Create(ctx, session)
+
+	return authResponse, nil
+}
+
+func (u *authUsecase) Logout(ctx context.Context, token string) error {
+	refreshToken, err := u.authRepo.GetRefreshTokenByToken(ctx, token)
+	if err == nil {
+		_ = u.authRepo.RevokeRefreshToken(ctx, refreshToken.ID)
+	}
+	_ = u.sessionRepo.DeleteByToken(ctx, token)
+	return nil
+}
+
+func (u *authUsecase) RefreshToken(ctx context.Context, refreshTokenStr string) (*domain.AuthResponse, error) {
+	refreshToken, err := u.authRepo.GetRefreshTokenByToken(ctx, refreshTokenStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refresh token")
+	}
+
+	if !refreshToken.IsValid() {
+		return nil, fmt.Errorf("refresh token expired or revoked")
+	}
+
+	user, err := u.userRepo.GetByID(ctx, refreshToken.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	return u.generateTokens(ctx, user)
+}
+
+func (u *authUsecase) ValidateToken(ctx context.Context, token string) (*domain.User, error) {
+	claims, err := u.jwtService.ValidateAccessToken(token)
+	if err != nil {
+		return nil, err
+	}
+	return u.userRepo.GetByID(ctx, claims.UserID)
+}
+
+func (u *authUsecase) ChangePassword(ctx context.Context, userID string, request *domain.ChangePasswordRequest) error {
+	user, err := u.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if err := u.authRepo.ComparePassword(user.Password, request.OldPassword); err != nil {
+		return fmt.Errorf("invalid old password")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(request.NewPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := u.userRepo.UpdatePassword(ctx, userID, hashedPassword); err != nil {
+		return err
+	}
+
+	_ = u.authRepo.RevokeAllRefreshTokensForUser(ctx, userID)
+	return nil
+}
+
+func (u *authUsecase) RequestPasswordReset(ctx context.Context, request *domain.PasswordResetRequest) error {
+	user, err := u.userRepo.GetByEmail(ctx, request.Email)
+	if err != nil {
+		return nil
+	}
+
+	resetToken, err := u.jwtService.GenerateRefreshToken()
+	if err != nil {
+		return err
+	}
+
+	refreshToken := &domain.RefreshToken{
+		UserID:    user.ID,
+		Token:     resetToken,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+	if err := u.authRepo.CreateRefreshToken(ctx, refreshToken); err != nil {
+		return err
+	}
+
+	if u.notificationUsecase != nil {
+		go func() {
+			_ = u.notificationUsecase.SendNotificationFromTemplate(
+				context.Background(),
+				user.ID,
+				"password_reset",
+				map[string]string{
+					"username": user.Username,
+					"token":    resetToken,
+				},
+			)
+		}()
+	}
+
+	return nil
+}
+
+func (u *authUsecase) ResetPassword(ctx context.Context, request *domain.PasswordResetConfirm) error {
+	refreshToken, err := u.authRepo.GetRefreshTokenByToken(ctx, request.Token)
+	if err != nil {
+		return fmt.Errorf("invalid or expired reset token")
+	}
+
+	if !refreshToken.IsValid() {
+		return fmt.Errorf("invalid or expired reset token")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(request.NewPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := u.userRepo.UpdatePassword(ctx, refreshToken.UserID, hashedPassword); err != nil {
+		return err
+	}
+
+	_ = u.authRepo.RevokeRefreshToken(ctx, refreshToken.ID)
+	_ = u.authRepo.RevokeAllRefreshTokensForUser(ctx, refreshToken.UserID)
+
+	return nil
+}
+
+func (u *authUsecase) VerifyEmail(ctx context.Context, request *domain.EmailVerificationRequest) error {
+	refreshToken, err := u.authRepo.GetRefreshTokenByToken(ctx, request.Token)
+	if err != nil {
+		return fmt.Errorf("invalid or expired verification token")
+	}
+
+	if !refreshToken.IsValid() {
+		return fmt.Errorf("invalid or expired verification token")
+	}
+
+	user, err := u.userRepo.GetByID(ctx, refreshToken.UserID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	now := time.Now()
+	user.IsEmailVerified = true
+	user.EmailVerifiedAt = &now
+
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return err
+	}
+
+	_ = u.authRepo.RevokeRefreshToken(ctx, refreshToken.ID)
+	return nil
+}
+
+func (u *authUsecase) ResendVerificationEmail(ctx context.Context, email string) error {
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if user.IsEmailVerified {
+		return fmt.Errorf("email already verified")
+	}
+
+	verificationToken, err := u.jwtService.GenerateRefreshToken()
+	if err != nil {
+		return err
+	}
+
+	refreshToken := &domain.RefreshToken{
+		UserID:    user.ID,
+		Token:     verificationToken,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+	if err := u.authRepo.CreateRefreshToken(ctx, refreshToken); err != nil {
+		return err
+	}
+
+	if u.notificationUsecase != nil {
+		go func() {
+			_ = u.notificationUsecase.SendNotificationFromTemplate(
+				context.Background(),
+				user.ID,
+				"email_verification",
+				map[string]string{
+					"username": user.Username,
+					"token":    verificationToken,
+				},
+			)
+		}()
+	}
+
+	return nil
+}
+
+func (u *authUsecase) GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error) {
+	return u.sessionRepo.GetByUserID(ctx, userID)
+}
+
+func (u *authUsecase) RevokeSession(ctx context.Context, sessionID string) error {
+	return u.sessionRepo.Delete(ctx, sessionID)
+}
+
+func (u *authUsecase) RevokeAllSessions(ctx context.Context, userID string) error {
+	if err := u.authRepo.RevokeAllRefreshTokensForUser(ctx, userID); err != nil {
+		return err
+	}
+	return u.sessionRepo.DeleteAllForUser(ctx, userID)
+}
+
+func (u *authUsecase) GetOAuthLoginURL(ctx context.Context, provider domain.AuthProvider, redirectURL string) (string, error) {
+	return "", fmt.Errorf("OAuth not implemented yet")
+}
+
+func (u *authUsecase) HandleOAuthCallback(ctx context.Context, provider domain.AuthProvider, code, state string) (*domain.AuthResponse, error) {
+	return nil, fmt.Errorf("OAuth not implemented yet")
+}
+
+func (u *authUsecase) validateCredentials(ctx context.Context, username, password string) (*domain.User, error) {
+	var user *domain.User
+	var err error
+
+	user, err = u.userRepo.GetByUsername(ctx, username)
+	if err != nil {
+		user, err = u.userRepo.GetByEmail(ctx, username)
 		if err != nil {
-			return nil, "", err
+			return nil, fmt.Errorf("invalid credentials")
 		}
 	}
 
-	jwtToken, err := uc.tokenRepo.GenerateToken(user.ID, user.Role)
-	if err != nil {
-		return nil, "", err
+	if !user.IsActive {
+		return nil, fmt.Errorf("account is inactive")
 	}
 
-	return user, jwtToken, nil
+	if user.IsLocked() {
+		return nil, fmt.Errorf("account is locked")
+	}
+
+	if err := u.authRepo.ComparePassword(user.Password, password); err != nil {
+		return user, fmt.Errorf("invalid credentials")
+	}
+
+	return user, nil
 }
 
-func (uc *authUsecase) ProtectedData(userID string) (string, error) {
-	return "This is protected data for user " + userID, nil
+func (u *authUsecase) generateTokens(ctx context.Context, user *domain.User) (*domain.AuthResponse, error) {
+	var permissions []string
+	if user.Role != nil {
+		for _, perm := range user.Role.Permissions {
+			permissions = append(permissions, perm.Name)
+		}
+	}
+
+	accessToken, err := u.jwtService.GenerateAccessToken(user, permissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	refreshToken, err := u.jwtService.GenerateRefreshToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	refreshTokenModel := &domain.RefreshToken{
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(time.Duration(u.cfg.RefreshTokenExpiry) * time.Second),
+	}
+	if err := u.authRepo.CreateRefreshToken(ctx, refreshTokenModel); err != nil {
+		return nil, fmt.Errorf("failed to store refresh token: %w", err)
+	}
+
+	return &domain.AuthResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    u.cfg.JWTExpiration,
+		User:         user,
+		IssuedAt:     time.Now(),
+	}, nil
 }

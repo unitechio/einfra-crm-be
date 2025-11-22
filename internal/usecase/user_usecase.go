@@ -1,107 +1,234 @@
-
 package usecase
 
 import (
 	"context"
 	"fmt"
-	"mymodule/internal/domain"
-	"mymodule/pkg/excelutil"
 
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/repository"
 	"github.com/xuri/excelize/v2"
 )
 
-// userUsecase implements the UserUsecase interface.
-type userUsecase struct {
-	userRepo domain.UserRepository
+type UserUsecase interface {
+	CreateUser(ctx context.Context, user *domain.User, password string) error
+	GetUser(ctx context.Context, id string) (*domain.User, error)
+	ListUsers(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
+	UpdateUser(ctx context.Context, user *domain.User) error
+	DeleteUser(ctx context.Context, id string) error
+	ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error
+	ResetPassword(ctx context.Context, userID, newPassword string) error
+	UpdateUserSettings(ctx context.Context, userID string, settings domain.UserSettings) error
+	ImportUsersFromExcel(ctx context.Context, filePath string) error
+	ExportUsersToExcel(ctx context.Context) (*excelize.File, string, error)
 }
 
-// NewUserUsecase creates a new userUsecase.
-func NewUserUsecase(userRepo domain.UserRepository) domain.UserUsecase {
+type userUsecase struct {
+	userRepo repository.UserRepository
+	authRepo repository.AuthRepository
+}
+
+func NewUserUsecase(
+	userRepo repository.UserRepository,
+	authRepo repository.AuthRepository,
+) UserUsecase {
 	return &userUsecase{
 		userRepo: userRepo,
+		authRepo: authRepo,
 	}
 }
 
-// ImportUsersFromExcel reads user data from an Excel file and saves it to the repository.
-func (uc *userUsecase) ImportUsersFromExcel(ctx context.Context, filePath string) error {
-	// Assume the first sheet is the one with user data
-	sheets, err := excelutil.GetSheetNames(filePath)
-	if err != nil || len(sheets) == 0 {
-		return fmt.Errorf("failed to get sheets from excel file: %w", err)
+func (u *userUsecase) CreateUser(ctx context.Context, user *domain.User, password string) error {
+	existingUser, _ := u.userRepo.GetByEmail(ctx, user.Email)
+	if existingUser != nil {
+		return fmt.Errorf("user with this email already exists")
 	}
-	sheetName := sheets[0]
 
-	// Read file with headers
-	rows, err := excelutil.ReadExcelFileWithHeaders(filePath, sheetName)
+	existingUser, _ = u.userRepo.GetByUsername(ctx, user.Username)
+	if existingUser != nil {
+		return fmt.Errorf("user with this username already exists")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(password)
 	if err != nil {
-		return fmt.Errorf("failed to read excel file with headers: %w", err)
+		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	users := make([]*domain.User, 0, len(rows))
-	for _, row := range rows {
-		// Basic validation
-		name, hasName := row["Name"]
-		email, hasEmail := row["Email"]
-		if !hasName || !hasEmail {
-			// Skip rows that don't have the required fields
+	user.Password = hashedPassword
+	user.IsActive = true
+
+	if err := u.userRepo.Create(ctx, user); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (u *userUsecase) GetUser(ctx context.Context, id string) (*domain.User, error) {
+	return u.userRepo.GetByID(ctx, id)
+}
+
+func (u *userUsecase) ListUsers(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error) {
+	return u.userRepo.List(ctx, filter)
+}
+
+func (u *userUsecase) UpdateUser(ctx context.Context, user *domain.User) error {
+	existingUser, err := u.userRepo.GetByID(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if user.Email != existingUser.Email {
+		emailUser, _ := u.userRepo.GetByEmail(ctx, user.Email)
+		if emailUser != nil && emailUser.ID != user.ID {
+			return fmt.Errorf("email already in use")
+		}
+	}
+
+	if user.Username != existingUser.Username {
+		usernameUser, _ := u.userRepo.GetByUsername(ctx, user.Username)
+		if usernameUser != nil && usernameUser.ID != user.ID {
+			return fmt.Errorf("username already in use")
+		}
+	}
+
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *userUsecase) DeleteUser(ctx context.Context, id string) error {
+	_, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if err := u.userRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *userUsecase) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+	user, err := u.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if err := u.authRepo.ComparePassword(user.Password, oldPassword); err != nil {
+		return fmt.Errorf("invalid old password")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := u.userRepo.UpdatePassword(ctx, userID, hashedPassword); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *userUsecase) ResetPassword(ctx context.Context, userID, newPassword string) error {
+	_, err := u.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	hashedPassword, err := u.authRepo.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := u.userRepo.UpdatePassword(ctx, userID, hashedPassword); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *userUsecase) UpdateUserSettings(ctx context.Context, userID string, settings domain.UserSettings) error {
+	return u.userRepo.UpdateSettings(ctx, userID, settings)
+}
+
+func (u *userUsecase) ImportUsersFromExcel(ctx context.Context, filePath string) error {
+	f, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open Excel file: %w", err)
+	}
+	defer f.Close()
+
+	rows, err := f.GetRows("Sheet1")
+	if err != nil {
+		return fmt.Errorf("failed to read rows: %w", err)
+	}
+
+	var users []*domain.User
+	for i, row := range rows {
+		if i == 0 {
 			continue
 		}
 
-		users = append(users, &domain.User{
-			Username: name,
-			Email:    email,
-			// Password can be auto-generated or handled differently
-			Password: "default-password",
-		})
+		if len(row) < 4 {
+			continue
+		}
+
+		hashedPassword, _ := u.authRepo.HashPassword(row[3])
+
+		user := &domain.User{
+			Username:  row[0],
+			Email:     row[1],
+			FirstName: row[2],
+			Password:  hashedPassword,
+			IsActive:  true,
+		}
+
+		users = append(users, user)
 	}
 
-	if len(users) == 0 {
-		return fmt.Errorf("no valid user data found in the excel file")
+	if len(users) > 0 {
+		if err := u.userRepo.CreateBatch(ctx, users); err != nil {
+			return fmt.Errorf("failed to import users: %w", err)
+		}
 	}
 
-	// Save users to the repository in a batch
-	return uc.userRepo.CreateBatch(ctx, users)
+	return nil
 }
 
-// ExportUsersToExcel gets all users from the repository and generates an Excel file.
-func (uc *userUsecase) ExportUsersToExcel(ctx context.Context) (*excelize.File, string, error) {
-	users, err := uc.userRepo.GetAll(ctx)
+func (u *userUsecase) ExportUsersToExcel(ctx context.Context) (*excelize.File, string, error) {
+	users, _, err := u.userRepo.List(ctx, domain.UserFilter{Page: 1, PageSize: 10000})
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get all users: %w", err)
+		return nil, "", fmt.Errorf("failed to get users: %w", err)
 	}
 
+	f := excelize.NewFile()
 	sheetName := "Users"
-	f, err := excelutil.CreateExcelFile(sheetName)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create excel file: %w", err)
-	}
+	index, _ := f.NewSheet(sheetName)
 
-	// Prepare headers
-	headers := []string{"ID", "Username", "Email"}
-	excelutil.SetHeaderRow(f, sheetName, headers)
-
-	// Create and apply a style for the header
-	headerStyle, _ := excelutil.CreateStyle(f, map[string]interface{}{
-		"font":      map[string]interface{}{"bold": true, "color": "#FFFFFF"},
-		"fill":      map[string]interface{}{"type": "pattern", "color": []string{"#4F81BD"}, "pattern": 1},
-		"alignment": map[string]interface{}{"horizontal": "center"},
-	})
-	for i := 0; i < len(headers); i++ {
+	headers := []string{"Username", "Email", "First Name", "Last Name", "Role", "Active", "Created At"}
+	for i, header := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		excelutil.SetCellStyle(f, sheetName, cell, headerStyle)
+		f.SetCellValue(sheetName, cell, header)
 	}
 
-	// Write user data
 	for i, user := range users {
-		rowNum := i + 2 // Start from row 2
-		rowData := []interface{}{user.ID, user.Username, user.Email}
-		excelutil.WriteRow(f, sheetName, rowNum, rowData)
+		row := i + 2
+		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), user.Username)
+		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), user.Email)
+		f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), user.FirstName)
+		f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), user.LastName)
+		if user.Role != nil {
+			f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), user.Role.Name)
+		}
+		f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), user.IsActive)
+		f.SetCellValue(sheetName, fmt.Sprintf("G%d", row), user.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 
-	// Auto-fit columns
-	excelutil.AutoFitColumns(f, sheetName)
-
-	fileName := fmt.Sprintf("Users_Export_%d.xlsx",_time.Now().Unix())
+	f.SetActiveSheet(index)
+	fileName := fmt.Sprintf("users_export_%s.xlsx", fmt.Sprintf("%d", len(users)))
 
 	return f, fileName, nil
 }

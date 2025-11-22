@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -6,22 +5,23 @@ import (
 	"log"
 	"os"
 
+	"github.com/unitechio/einfra-be/internal/auth"
+
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"mymodule/internal/adapter/http/handler"
-	"mymodule/internal/adapter/http/router"
-	"mymodule/internal/config"
-	"mymodule/internal/domain"
-	"mymodule/internal/infrastructure/email"
-	oauthinfra "mymodule/internal/infrastructure/oauth"
-	"mymodule/internal/infrastructure/repository"
-	"mymodule/internal/logger"
-	"mymodule/internal/realtime"
-	"mymodule/internal/usecase"
+	"github.com/unitechio/einfra-be/internal/adapter/http/handler"
+	"github.com/unitechio/einfra-be/internal/adapter/http/router"
+	"github.com/unitechio/einfra-be/internal/auth"
+	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/infrastructure/email"
+	oauthinfra "github.com/unitechio/einfra-be/internal/infrastructure/oauth"
+	_repository "github.com/unitechio/einfra-be/internal/infrastructure/repository"
+	"github.com/unitechio/einfra-be/internal/logger"
+	"github.com/unitechio/einfra-be/internal/realtime"
+	"github.com/unitechio/einfra-be/internal/usecase"
 )
 
 func main() {
@@ -39,20 +39,20 @@ func main() {
 	zapLogger := logger.NewZapLogger(cfg.Log.Level, cfg.Log.File)
 
 	// --- Database Connection & Migration ---
-	dbpool, err := pgxpool.New(context.Background(), cfg.DB.PostgresURL)
+	db, err := pgxpool.New(context.Background(), cfg.DB.PostgresURL)
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
 	}
-	defer dbpool.Close()
+	defer db.Close()
 
 	if err := runMigrations(cfg.DB.PostgresURL); err != nil {
 		log.Fatalf("Could not run database migrations: %v\n", err)
 	}
 
 	// --- Dependency Injection ---
-	userRepo := repository.NewPostgresUserRepository(dbpool)
-	imageRepo := repository.NewPostgresImageRepository(dbpool)
-	tokenRepo := repository.NewTokenRepository()
+
+	jwtService := auth.NewJWTService(cfg.Auth)
+
 	googleProvider := oauthinfra.NewGoogleProvider(&cfg.Auth.Google)
 	azureProvider := oauthinfra.NewAzureProvider(&cfg.Auth.Azure)
 	oauthProviders := map[string]domain.OAuthProvider{
@@ -63,17 +63,53 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create email service: %v", err)
 	}
-	authUsecase := usecase.NewAuthUsecase(userRepo, tokenRepo)
-	oauthUsecase := usecase.NewOAuthUsecase(userRepo, tokenRepo, oauthProviders)
-	emailUsecase := usecase.NewEmailUsecase(emailService)
-	userUsecase := usecase.NewUserUsecase(userRepo)
-	imageUsecase := usecase.NewImageUsecase(imageRepo, cfg.Storage.ImagePath)
-	notificationHandler := handler.NewNotificationHandler(nil) // Placeholder
-	auditService := &usecase.AuditUsecase{}                      // Placeholder
+
+	userRepo := _repository.NewUserRepository(db)
+	roleRepo := _repository.NewRoleRepository(db)
+	permissionRepo := _repository.NewPermissionRepository(db)
+	sessionRepo := _repository.NewSessionRepository(db)
+	auditRepo := _repository.NewAuditRepository(db)
+	authRepo := _repository.NewAuthRepository(db)
+	loginAttemptRepo := _repository.NewPostgresLoginAttemptRepository(db)
+	imageRepo := _repository.NewPostgresImageRepository(db)
+	tokenRepo := _repository.NewTokenRepository()
+	notifRepo := _repository.NewNotificationRepository(db)
+	templateRepo := _repository.NewNotificationTemplateRepository(db)
+	prefRepo := _repository.NewNotificationPreferenceRepository(db)
+
+	// Messaging and Realtime
+	// producer := messaging.NewKafkaProducer(...) // Placeholder
 	hub := realtime.NewHub()
-	healthHandler := handler.NewHealthHandler(nil)                                     // Placeholder
-	systemSettingHandler := handler.NewSystemSettingHandler(nil)                     // Placeholder
-	featureFlagHandler := handler.NewFeatureFlagHandler(nil)                         // Placeholder
+
+	notificationUsecase := usecase.NewNotificationUsecase(
+		notifRepo,
+		templateRepo,
+		prefRepo,
+		userRepo,
+		nil, // producer placeholder
+		hub,
+		zapLogger,
+	)
+
+	authUsecase := usecase.NewAuthUsecase(
+		authRepo,
+		userRepo,
+		sessionRepo,
+		loginAttemptRepo,
+		notificationUsecase,
+		jwtService,
+		cfg.Auth,
+	)
+	oauthUsecase := usecase.NewOAuthUsecase(userRepo, authRepo, jwtService, oauthProviders)
+	emailUsecase := usecase.NewEmailUsecase(emailService)
+	userUsecase := usecase.NewUserUsecase(userRepo, authRepo)
+	imageUsecase := usecase.NewImageUsecase(imageRepo, cfg.Storage.ImagePath)
+
+	notificationHandler := handler.NewNotificationHandler(notificationUsecase)
+	auditService := &usecase.AuditUsecase{}                      // Placeholder
+	healthHandler := handler.NewHealthHandler(nil)               // Placeholder
+	systemSettingHandler := handler.NewSystemSettingHandler(nil) // Placeholder
+	featureFlagHandler := handler.NewFeatureFlagHandler(nil)     // Placeholder
 	userSettingsHandler := handler.NewUserSettingsHandler(userUsecase)
 
 	// --- HTTP Server Setup ---

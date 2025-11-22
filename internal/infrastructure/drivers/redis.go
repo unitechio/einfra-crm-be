@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/go-redis/redis/v8"
-	"mymodule/internal/config"
+	"github.com/unitechio/einfra-be/internal/config"
 )
 
 // NewRedisClient creates a new Redis client.

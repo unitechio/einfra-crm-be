@@ -1,37 +1,31 @@
-
 package usecase
 
 import (
 	"context"
 
-	"github.com/xuri/excelize/v2"
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/repository"
 )
 
-// userSettingUsecase implements the userSettingUsecase interface.
-type userSettingUsecase struct {
-	userRepo domain.UserRepository
+type UserSettingsUseCase interface {
+	GetUserSettings(ctx context.Context, userID string) (*domain.UserSettings, error)
+	UpdateUserSettings(ctx context.Context, userID string, settings *domain.UserSettings) error
 }
 
-// NewuserSettingUsecase creates a new userSettingUsecase.
-func NewUserSettingUsecase(userRepo domain.UserRepository) domain.userUsecase {
-	return &userSettingUsecase{userRepo: userRepo}
+type userSettingsUsecase struct {
+	userSettingsRepo repository.UserSettingsRepository
 }
 
-// UpdateUserSettings updates the user's settings.
-func (uc *userSettingUsecase) UpdateUserSettings(ctx context.Context, userID string, settings domain.UserSettings) error {
-	// You can add validation logic here before updating.
-	return uc.userRepo.UpdateSettings(ctx, userID, settings)
+func NewUserSettingsUseCase(userSettingsRepo repository.UserSettingsRepository) UserSettingsUseCase {
+	return &userSettingsUsecase{
+		userSettingsRepo: userSettingsRepo,
+	}
 }
 
-// ImportUsersFromExcel imports users from an Excel file.
-func (uc *userSettingUsecase) ImportUsersFromExcel(ctx context.Context, filePath string) error {
-	// Implementation for importing users from Excel
-	return nil
+func (u *userSettingsUsecase) GetUserSettings(ctx context.Context, userID string) (*domain.UserSettings, error) {
+	return u.userSettingsRepo.GetByUserID(ctx, userID)
 }
 
-// ExportUsersToExcel exports users to an Excel file.
-func (uc *userSettingUsecase) ExportUsersToExcel(ctx context.Context) (*excelize.File, string, error) {
-	// Implementation for exporting users to Excel
-	return nil, "", nil
+func (u *userSettingsUsecase) UpdateUserSettings(ctx context.Context, userID string, settings *domain.UserSettings) error {
+	return u.userSettingsRepo.Update(ctx, userID, settings)
 }

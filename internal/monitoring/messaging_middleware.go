@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"mymodule/internal/messaging"
+	"github.com/unitechio/einfra-be/internal/messaging"
 )
 
 // --- Publisher Middleware ---

@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 
-	"mymodule/internal/domain"
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
 // HealthUsecase is the use case for health checks.

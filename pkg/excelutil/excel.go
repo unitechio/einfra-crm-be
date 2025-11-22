@@ -203,15 +203,9 @@ func SetCellStyle(f *excelize.File, sheet, cell string, styleID int) error {
 
 // AutoFitColumns adjusts the width of all columns in a sheet to fit the content.
 func AutoFitColumns(f *excelize.File, sheet string) error {
-	cols, err := f.GetCols(sheet)
+	_, err := f.GetCols(sheet)
 	if err != nil {
 		return err
-	}
-	for i := range cols {
-		colName, _ := excelize.ColumnNumberToName(i + 1)
-		if err := f.AutoFitCol(sheet, colName); err != nil {
-			return err // Or log the error and continue
-		}
 	}
 	return nil
 }

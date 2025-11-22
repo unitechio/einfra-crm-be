@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"mymodule/internal/monitoring"
+	"github.com/unitechio/einfra-be/internal/monitoring"
 )
 
 // PrometheusMiddleware returns a gin.HandlerFunc that records Prometheus metrics.

@@ -4,16 +4,195 @@
 *.dll
 *.so
 *.dylib
+einfra-crm-be
+main
 
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Output of the go coverage tool
 *.out
+coverage.html
+coverage.out
 
-# IDE-specific files
-.idea/
-.vscode/
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
 
 # Environment variables
 .env
+.env.local
+.env.*.local
+
+# Configuration files (use .example files instead)
+config.yaml
+config.yml
+config.json
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Build artifacts
+dist/
+build/
+bin/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Upload directories
+uploads/
+storage/
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+certs/
+ssl/
+
+# Secrets
+secrets/
+*.secret
+
+# Cache
+.cache/
+*.cache
+
+# OS generated files
+Thumbs.db
+Desktop.ini
+
+# Air (hot reload) temporary files
+tmp/
+.air.toml
+
+# Swagger generated files (optional, can be committed)
+# docs/docs.go
+# docs/swagger.json
+# docs/swagger.yaml
+
+# Migration files with sensitive data
+# migrations/*.sql
+
+# Test coverage
+coverage/
+*.cover
+
+# Profiling
+*.prof
+*.pprof
+
+# Backup files
+*.bak
+*.backup
+
+# Node modules (if using any JS tools)
+node_modules/
+
+# Python (if using any Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+ENV/
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Tags
+TAGS
+tags
+.tags
+.tags1
+
+# Local development
+.local/
+local/
+
+# Helm charts
+charts/
+*.tgz
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Ansible
+*.retry
+
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk

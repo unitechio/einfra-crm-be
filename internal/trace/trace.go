@@ -12,7 +12,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 
-	"mymodule/internal/config"
+	"github.com/unitechio/einfra-be/internal/config"
 )
 
 // InitTracer initializes an OTLP exporter, and configures the corresponding trace provider.

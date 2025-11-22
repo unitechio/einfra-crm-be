@@ -1,103 +1,188 @@
-
 package usecase
 
 import (
 	"context"
-	"encoding/json"
-	"mymodule/internal/domain"
-	"mymodule/internal/logger"
-	"mymodule/internal/messaging"
-	"mymodule/internal/realtime"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/logger"
+	"github.com/unitechio/einfra-be/internal/realtime"
+	"github.com/unitechio/einfra-be/internal/repository"
 )
 
-// NotificationUsecase handles notification business logic.
 type NotificationUsecase interface {
-	GetAll() ([]*domain.Notification, error)
-	GetByID(id string) (*domain.Notification, error)
-	Create(ctx context.Context, notification *domain.Notification) error
-	MarkAsRead(id string) error
-	GetUnread() ([]*domain.Notification, error)
-	Delete(id string) error
-}
-
-// NewNotificationUsecase creates a new notification usecase.
-func NewNotificationUsecase(repo domain.NotificationRepository, hub *realtime.Hub, publisher messaging.Publisher, log logger.Logger) NotificationUsecase {
-	return &notificationUsecase{repo: repo, hub: hub, publisher: publisher, log: log}
+	SendNotification(ctx context.Context, notification *domain.Notification) error
+	SendNotificationFromTemplate(ctx context.Context, userID, templateName string, variables map[string]string) error
+	SendBulkNotification(ctx context.Context, userIDs []string, notification *domain.Notification) error
+	GetNotification(ctx context.Context, id string) (*domain.Notification, error)
+	GetUserNotifications(ctx context.Context, userID string, filter domain.NotificationFilter) ([]*domain.Notification, int64, error)
+	GetUnreadCount(ctx context.Context, userID string) (int64, error)
+	MarkAsRead(ctx context.Context, id string) error
+	MarkAllAsRead(ctx context.Context, userID string) error
+	DeleteNotification(ctx context.Context, id string) error
+	CleanupOldNotifications(ctx context.Context, retentionDays int) error
+	GetUserPreferences(ctx context.Context, userID string) (*domain.NotificationPreference, error)
+	UpdateUserPreferences(ctx context.Context, userID string, preferences *domain.NotificationPreference) error
 }
 
 type notificationUsecase struct {
-	repo      domain.NotificationRepository
-	hub       *realtime.Hub
-	publisher messaging.Publisher
-	log       logger.Logger
+	repo         repository.NotificationRepository
+	templateRepo domain.NotificationTemplateRepository
+	prefRepo     domain.NotificationPreferenceRepository
+	userRepo     repository.UserRepository
+	hub          *realtime.Hub
+	log          logger.Logger
 }
 
-// GetAll retrieves all notifications.
-func (uc *notificationUsecase) GetAll() ([]*domain.Notification, error) {
-	uc.log.Info(context.Background(), "GetAll usecase called")
-	return uc.repo.GetAll()
+func NewNotificationUsecase(
+	repo repository.NotificationRepository,
+	templateRepo domain.NotificationTemplateRepository,
+	prefRepo domain.NotificationPreferenceRepository,
+	userRepo repository.UserRepository,
+	hub *realtime.Hub,
+	log logger.Logger,
+) NotificationUsecase {
+	return &notificationUsecase{
+		repo:         repo,
+		templateRepo: templateRepo,
+		prefRepo:     prefRepo,
+		userRepo:     userRepo,
+		hub:          hub,
+		log:          log,
+	}
 }
 
-// GetByID retrieves a notification by its ID.
-func (uc *notificationUsecase) GetByID(id string) (*domain.Notification, error) {
-	uc.log.Info(context.Background(), "GetByID usecase called", logger.LogField{Key: "id", Value: id})
-	return uc.repo.GetByID(id)
-}
+func (u *notificationUsecase) SendNotification(ctx context.Context, notification *domain.Notification) error {
+	// Check user preferences
+	prefs, err := u.prefRepo.GetByUserID(ctx, notification.UserID)
+	if err == nil && prefs != nil {
+		// Check if notification type is enabled
+		// This logic can be more complex based on NotificationTypes array
+		// For now, basic checks
+		if notification.Channel == domain.NotificationChannelInApp && !prefs.EnableInApp {
+			return nil // Skip
+		}
+		if notification.Channel == domain.NotificationChannelEmail && !prefs.EnableEmail {
+			return nil // Skip
+		}
+		// Check quiet hours
+		if prefs.IsInQuietHours() && notification.Priority != domain.NotificationPriorityUrgent {
+			// Maybe delay or skip? For now, let's just log and proceed or skip.
+			// u.log.Info(ctx, "Notification skipped due to quiet hours", logger.LogField{Key: "user_id", Value: notification.UserID})
+			// return nil
+		}
+	}
 
-// Create creates a new notification, broadcasts it, and publishes it to the message broker.
-func (uc *notificationUsecase) Create(ctx context.Context, notification *domain.Notification) error {
-	uc.log.Info(ctx, "Create usecase called", logger.LogField{Key: "notification_id", Value: notification.ID})
-	if err := uc.repo.Create(notification); err != nil {
-		uc.log.Error(ctx, "Failed to create notification in repo", logger.LogField{Key: "error", Value: err})
+	// Save to DB
+	if err := u.repo.Create(ctx, notification); err != nil {
 		return err
 	}
 
-	// Send to WebSocket clients
-	msgBytes, err := json.Marshal(notification)
-	if err != nil {
-		uc.log.Error(ctx, "Error marshalling notification for websocket", logger.LogField{Key: "error", Value: err})
-	} else {
-		uc.hub.Broadcast(msgBytes)
-	}
-
-	// Publish event to the message broker
-	msg := messaging.Message{
-		ID:      notification.ID,
-		Topic:   "notifications", // This could be configured
-		Payload: msgBytes,
-		Headers: make(map[string]string),
-	}
-	if err := uc.publisher.Publish(ctx, msg); err != nil {
-		// Log the error but don't fail the entire request.
-		// The notification is saved in the DB and sent to websockets.
-		// The system should be resilient to the message broker being temporarily down.
-		uc.log.Error(ctx, "Error publishing notification event", logger.LogField{Key: "error", Value: err})
+	// Send to Realtime Hub
+	if u.hub != nil {
+		u.hub.SendToUser(notification.UserID, notification)
 	}
 
 	return nil
 }
 
-// MarkAsRead marks a notification as read.
-func (uc *notificationUsecase) MarkAsRead(id string) error {
-	uc.log.Info(context.Background(), "MarkAsRead usecase called", logger.LogField{Key: "id", Value: id})
-	notification, err := uc.repo.GetByID(id)
+func (u *notificationUsecase) SendNotificationFromTemplate(ctx context.Context, userID, templateName string, variables map[string]string) error {
+	template, err := u.templateRepo.GetByName(ctx, templateName)
 	if err != nil {
-		uc.log.Error(context.Background(), "Failed to get notification by ID in MarkAsRead", logger.LogField{Key: "id", Value: id}, logger.LogField{Key: "error", Value: err})
-		return err
+		return fmt.Errorf("template not found: %w", err)
 	}
 
-	notification.Read = true
-	return uc.repo.Update(notification)
+	if !template.IsActive {
+		return fmt.Errorf("template is inactive")
+	}
+
+	// Replace variables in Subject and Body
+	subject := template.Subject
+	body := template.BodyText // Or BodyHTML
+	for k, v := range variables {
+		subject = strings.ReplaceAll(subject, "{{"+k+"}}", v)
+		body = strings.ReplaceAll(body, "{{"+k+"}}", v)
+	}
+
+	notification := &domain.Notification{
+		UserID:   userID,
+		Type:     template.Type,
+		Channel:  template.Channel,
+		Priority: template.Priority,
+		Title:    subject,
+		Message:  body,
+		IsSent:   false,
+	}
+
+	return u.SendNotification(ctx, notification)
 }
 
-// GetUnread retrieves all unread notifications.
-func (uc *notificationUsecase) GetUnread() ([]*domain.Notification, error) {
-	uc.log.Info(context.Background(), "GetUnread usecase called")
-	return uc.repo.GetUnread()
+func (u *notificationUsecase) SendBulkNotification(ctx context.Context, userIDs []string, notification *domain.Notification) error {
+	for _, userID := range userIDs {
+		n := *notification // Copy
+		n.UserID = userID
+		n.ID = "" // Reset ID to let DB generate new one
+		if err := u.SendNotification(ctx, &n); err != nil {
+			u.log.Error(ctx, "Failed to send bulk notification", logger.LogField{Key: "user_id", Value: userID}, logger.LogField{Key: "error", Value: err})
+			// Continue with others
+		}
+	}
+	return nil
 }
 
-// Delete deletes a notification.
-func (uc *notificationUsecase) Delete(id string) error {
-	uc.log.Info(context.Background(), "Delete usecase called", logger.LogField{Key: "id", Value: id})
-	return uc.repo.Delete(id)
+func (u *notificationUsecase) GetNotification(ctx context.Context, id string) (*domain.Notification, error) {
+	return u.repo.GetByID(ctx, id)
+}
+
+func (u *notificationUsecase) GetUserNotifications(ctx context.Context, userID string, filter domain.NotificationFilter) ([]*domain.Notification, int64, error) {
+	return u.repo.GetByUserID(ctx, userID, filter)
+}
+
+func (u *notificationUsecase) GetUnreadCount(ctx context.Context, userID string) (int64, error) {
+	return u.repo.GetUnreadCount(ctx, userID)
+}
+
+func (u *notificationUsecase) MarkAsRead(ctx context.Context, id string) error {
+	return u.repo.MarkAsRead(ctx, id)
+}
+
+func (u *notificationUsecase) MarkAllAsRead(ctx context.Context, userID string) error {
+	return u.repo.MarkAllAsRead(ctx, userID)
+}
+
+func (u *notificationUsecase) DeleteNotification(ctx context.Context, id string) error {
+	return u.repo.Delete(ctx, id)
+}
+
+func (u *notificationUsecase) CleanupOldNotifications(ctx context.Context, retentionDays int) error {
+	duration := time.Duration(retentionDays) * 24 * time.Hour
+	return u.repo.DeleteOlderThan(ctx, duration)
+}
+
+func (u *notificationUsecase) GetUserPreferences(ctx context.Context, userID string) (*domain.NotificationPreference, error) {
+	pref, err := u.prefRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		// If not found, return default preferences
+		return &domain.NotificationPreference{
+			UserID:      userID,
+			EnableInApp: true,
+			EnableEmail: true,
+			EnablePush:  true,
+		}, nil
+	}
+	return pref, nil
+}
+
+func (u *notificationUsecase) UpdateUserPreferences(ctx context.Context, userID string, preferences *domain.NotificationPreference) error {
+	existing, err := u.prefRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		// Create if not exists
+		preferences.UserID = userID
+		return u.prefRepo.Create(ctx, preferences)
+	}
+	preferences.ID = existing.ID
+	preferences.UserID = userID
+	return u.prefRepo.Update(ctx, preferences)
 }

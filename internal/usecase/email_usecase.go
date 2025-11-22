@@ -1,37 +1,40 @@
-
 package usecase
 
 import (
 	"context"
-	"mymodule/internal/domain"
+
+	"github.com/unitechio/einfra-be/internal/domain"
 )
 
-// emailUsecase implements the domain.EmailUsecase interface.
+type EmailUsecase interface {
+	SendEmail(ctx context.Context, to []string, subject, body string) error
+	SendEmailWithTemplate(ctx context.Context, to []string, templateName string, data interface{}) error
+}
+
 type emailUsecase struct {
 	emailService domain.EmailService
 }
 
-// NewEmailUsecase creates a new email usecase.
-func NewEmailUsecase(emailService domain.EmailService) domain.EmailUsecase {
+func NewEmailUsecase(emailService domain.EmailService) EmailUsecase {
 	return &emailUsecase{
 		emailService: emailService,
 	}
 }
 
-// SendWelcomeEmail sends a welcome email to a new user.
-func (uc *emailUsecase) SendWelcomeEmail(ctx context.Context, user *domain.User) error {
+func (u *emailUsecase) SendEmail(ctx context.Context, to []string, subject, body string) error {
 	data := domain.EmailData{
-		To:       []string{user.Email},
-		Subject:  "Welcome to Our Platform!",
-		Template: "welcome.html",
-		Data: map[string]interface{}{
-			"Name": user.Username,
-		},
+		To:      to,
+		Subject: subject,
+		Data:    map[string]interface{}{"body": body}, // Simplified
 	}
-	return uc.emailService.SendEmail(ctx, data)
+	return u.emailService.SendEmail(ctx, data)
 }
 
-// SendCustomEmail sends a generic email based on the provided data.
-func (uc *emailUsecase) SendCustomEmail(ctx context.Context, data domain.EmailData) error {
-	return uc.emailService.SendEmail(ctx, data)
+func (u *emailUsecase) SendEmailWithTemplate(ctx context.Context, to []string, templateName string, data interface{}) error {
+	emailData := domain.EmailData{
+		To:       to,
+		Template: templateName,
+		Data:     data.(map[string]interface{}), // Type assertion, might need better handling
+	}
+	return u.emailService.SendEmail(ctx, emailData)
 }

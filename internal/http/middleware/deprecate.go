@@ -4,7 +4,7 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"mymodule/internal/logger"
+	"github.com/unitechio/einfra-be/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
