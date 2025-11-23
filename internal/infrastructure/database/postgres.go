@@ -145,8 +145,12 @@ func InitDatabases(cfgs map[string]config.DatabaseConfig) (map[string]*gorm.DB, 
 	for name, dbCfg := range cfgs {
 		conn, err := NewPostgresConnection(dbCfg)
 		if err != nil {
+			// Close already opened connections
 			for _, c := range connections {
-				c.Close()
+				sqlDB, _ := c.DB()
+				if sqlDB != nil {
+					_ = sqlDB.Close()
+				}
 			}
 			return nil, fmt.Errorf("error connecting to %s: %w", name, err)
 		}
@@ -159,7 +163,12 @@ func InitDatabases(cfgs map[string]config.DatabaseConfig) (map[string]*gorm.DB, 
 
 func CloseAll(connections map[string]*gorm.DB) {
 	for name, conn := range connections {
-		if err := conn.Close(); err != nil {
+		sqlDB, err := conn.DB()
+		if err != nil {
+			log.Printf("⚠️  Error getting sqlDB for %s: %v", name, err)
+			continue
+		}
+		if err := sqlDB.Close(); err != nil {
 			log.Printf("⚠️  Error closing database %s: %v", name, err)
 		} else {
 			log.Printf("✅ Closed database connection: %s", name)

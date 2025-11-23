@@ -1,12 +1,13 @@
-package http
+package handler
 
 import (
-	"EOFFICE_CRM_BE/internal/dto"
-	"EOFFICE_CRM_BE/internal/service"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/unitechio/einfra-be/internal/dto"
+	"github.com/unitechio/einfra-be/internal/usecase"
 
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -16,71 +17,14 @@ import (
 )
 
 type DocumentHandler struct {
-	documentService service.IDocumentService
+	documentusecase usecase.DocumentUsecase
 }
 
-func NewDocumentHandler(documentService service.IDocumentService) *DocumentHandler {
+func NewDocumentHandler(documentusecase usecase.DocumentUsecase) *DocumentHandler {
 	return &DocumentHandler{
-		documentService: documentService,
+		documentusecase: documentusecase,
 	}
 }
-
-func (h *DocumentHandler) Register(router *gin.RouterGroup) {
-	document := router.Group("/documents")
-	{
-		// Document CRUD
-		//document.POST("/upload", h.UploadDocument)
-		//document.GET("/list", h.GetDocuments)
-		//document.GET("/entity/:type/:id", h.GetDocumentsByEntity)
-		//document.GET("/:id", h.GetDocumentByID)
-		//document.GET("/code/:code", h.GetDocumentByCode)
-		//document.PUT("/:id", h.UpdateDocument)
-		//document.DELETE("/:id", h.DeleteDocument)
-		//document.GET("/download/:id", h.DownloadDocument)
-		//
-		//// Permissions
-		//document.POST("/permissions", h.AddDocumentPermission)
-		//document.GET("/:id/permissions", h.GetDocumentPermissions)
-		//document.PUT("/permissions/:id", h.UpdateDocumentPermission)
-		//document.DELETE("/permissions/:id", h.DeleteDocumentPermission)
-		//
-		//// Comments
-		//document.POST("/comments", h.AddDocumentComment)
-		//document.GET("/:id/comments", h.GetDocumentComments)
-		//document.PUT("/comments/:id", h.UpdateDocumentComment)
-		//document.DELETE("/comments/:id", h.DeleteDocumentComment)
-		//
-		//// Versions
-		//document.GET("/:id/versions", h.GetDocumentVersions)
-		document.POST("/upload", h.UploadDocument)
-		document.GET("/list", h.GetDocuments)
-		document.GET("/entity/:type/:id", h.GetDocumentsByEntity)
-		document.GET("/:id", h.GetDocumentByID)
-		document.GET("/view/:id", h.ViewDocument)
-		document.GET("/view-url/:id", h.GetDocumentViewURL)
-		document.GET("/code/:code", h.GetDocumentByCode)
-		document.PUT("/:id", h.UpdateDocument)
-		document.DELETE("/:id", h.DeleteDocument)
-		document.GET("/download/:id", h.DownloadDocument)
-
-		// Permissions
-		document.POST("/permissions", h.AddDocumentPermission)
-		document.GET("/:id/permissions", h.GetDocumentPermissions)
-		document.PUT("/permissions/:id", h.UpdateDocumentPermission)
-		document.DELETE("/permissions/:id", h.DeleteDocumentPermission)
-
-		// Comments
-		document.POST("/comments", h.AddDocumentComment)
-		document.GET("/:id/comments", h.GetDocumentComments)
-		document.PUT("/comments/:id", h.UpdateDocumentComment)
-		document.DELETE("/comments/:id", h.DeleteDocumentComment)
-
-		// Versions
-		document.GET("/:id/versions", h.GetDocumentVersions)
-	}
-}
-
-// Document CRUD handlers
 
 // UploadDocument handles uploading a new document
 func (h *DocumentHandler) UploadDocument(c *gin.Context) {
@@ -120,7 +64,7 @@ func (h *DocumentHandler) UploadDocument(c *gin.Context) {
 	}
 
 	// Upload document
-	document, err := h.documentService.UploadDocument(c.Request.Context(), file, uploadRequest, userID.(uuid.UUID))
+	document, err := h.documentusecase.UploadDocument(c.Request.Context(), file, uploadRequest, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to upload document: %s", err.Error())})
 		return
@@ -159,7 +103,7 @@ func (h *DocumentHandler) GetDocuments(c *gin.Context) {
 	}
 
 	// Get documents
-	result, err := h.documentService.GetDocuments(c.Request.Context(), filter, userID.(uuid.UUID))
+	result, err := h.documentusecase.GetDocuments(c.Request.Context(), filter, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get documents: %s", err.Error())})
 		return
@@ -188,7 +132,7 @@ func (h *DocumentHandler) GetDocumentsByEntity(c *gin.Context) {
 	}
 
 	// Get documents for entity
-	documents, err := h.documentService.GetDocumentsByEntityID(
+	documents, err := h.documentusecase.GetDocumentsByEntityID(
 		c.Request.Context(),
 		entityType,
 		uint(entityID),
@@ -220,7 +164,7 @@ func (h *DocumentHandler) GetDocumentByID(c *gin.Context) {
 	}
 
 	// Get document
-	document, err := h.documentService.GetDocumentByID(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	document, err := h.documentusecase.GetDocumentByID(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get document: %s", err.Error())})
 		return
@@ -245,7 +189,7 @@ func (h *DocumentHandler) GetDocumentViewURL(c *gin.Context) {
 	}
 
 	// Lấy thông tin document
-	document, err := h.documentService.GetDocumentByID(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	document, err := h.documentusecase.GetDocumentByID(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Document not found"})
 		return
@@ -288,7 +232,7 @@ func (h *DocumentHandler) ViewDocument(c *gin.Context) {
 	}
 
 	// Lấy nội dung file
-	fileBytes, contentType, fileName, err := h.documentService.DownloadDocument(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	fileBytes, contentType, fileName, err := h.documentusecase.DownloadDocument(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get document"})
 		return
@@ -312,7 +256,7 @@ func (h *DocumentHandler) GetDocumentByCode(c *gin.Context) {
 	code := c.Param("code")
 
 	// Get document
-	document, err := h.documentService.GetDocumentByCode(c.Request.Context(), code, userID.(uuid.UUID))
+	document, err := h.documentusecase.GetDocumentByCode(c.Request.Context(), code, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get document: %s", err.Error())})
 		return
@@ -346,7 +290,7 @@ func (h *DocumentHandler) UpdateDocument(c *gin.Context) {
 	}
 
 	// Update document
-	document, err := h.documentService.UpdateDocument(c.Request.Context(), uint(id), updateRequest, userID.(uuid.UUID))
+	document, err := h.documentusecase.UpdateDocument(c.Request.Context(), uint(id), updateRequest, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update document: %s", err.Error())})
 		return
@@ -376,7 +320,7 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 	}
 
 	// Delete document
-	if err := h.documentService.DeleteDocument(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
+	if err := h.documentusecase.DeleteDocument(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete document: %s", err.Error())})
 		return
 	}
@@ -402,7 +346,7 @@ func (h *DocumentHandler) DownloadDocument(c *gin.Context) {
 	}
 
 	// Download document
-	fileBytes, contentType, fileName, err := h.documentService.DownloadDocument(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	fileBytes, contentType, fileName, err := h.documentusecase.DownloadDocument(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download document: %s", err.Error())})
 		return
@@ -432,7 +376,7 @@ func (h *DocumentHandler) AddDocumentPermission(c *gin.Context) {
 	}
 
 	// Add permission
-	if err := h.documentService.AddDocumentPermission(c.Request.Context(), permissionRequest, userID.(uuid.UUID)); err != nil {
+	if err := h.documentusecase.AddDocumentPermission(c.Request.Context(), permissionRequest, userID.(uuid.UUID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to add permission: %s", err.Error())})
 		return
 	}
@@ -458,7 +402,7 @@ func (h *DocumentHandler) GetDocumentPermissions(c *gin.Context) {
 	}
 
 	// Get permissions
-	permissions, err := h.documentService.GetDocumentPermissions(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	permissions, err := h.documentusecase.GetDocumentPermissions(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get permissions: %s", err.Error())})
 		return
@@ -492,7 +436,7 @@ func (h *DocumentHandler) UpdateDocumentPermission(c *gin.Context) {
 	}
 
 	// Update permission
-	if err := h.documentService.UpdateDocumentPermission(c.Request.Context(), uint(id), permissionRequest, userID.(uuid.UUID)); err != nil {
+	if err := h.documentusecase.UpdateDocumentPermission(c.Request.Context(), uint(id), permissionRequest, userID.(uuid.UUID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update permission: %s", err.Error())})
 		return
 	}
@@ -518,7 +462,7 @@ func (h *DocumentHandler) DeleteDocumentPermission(c *gin.Context) {
 	}
 
 	// Delete permission
-	if err := h.documentService.RemoveDocumentPermission(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
+	if err := h.documentusecase.RemoveDocumentPermission(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete permission: %s", err.Error())})
 		return
 	}
@@ -545,7 +489,7 @@ func (h *DocumentHandler) AddDocumentComment(c *gin.Context) {
 	}
 
 	// Add comment
-	comment, err := h.documentService.AddDocumentComment(c.Request.Context(), commentRequest, userID.(uuid.UUID))
+	comment, err := h.documentusecase.AddDocumentComment(c.Request.Context(), commentRequest, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to add comment: %s", err.Error())})
 		return
@@ -575,7 +519,7 @@ func (h *DocumentHandler) GetDocumentComments(c *gin.Context) {
 	}
 
 	// Get comments
-	comments, err := h.documentService.GetDocumentComments(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	comments, err := h.documentusecase.GetDocumentComments(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get comments: %s", err.Error())})
 		return
@@ -611,7 +555,7 @@ func (h *DocumentHandler) UpdateDocumentComment(c *gin.Context) {
 	}
 
 	// Update comment
-	comment, err := h.documentService.UpdateDocumentComment(c.Request.Context(), uint(id), requestData.Comment, userID.(uuid.UUID))
+	comment, err := h.documentusecase.UpdateDocumentComment(c.Request.Context(), uint(id), requestData.Comment, userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update comment: %s", err.Error())})
 		return
@@ -641,7 +585,7 @@ func (h *DocumentHandler) DeleteDocumentComment(c *gin.Context) {
 	}
 
 	// Delete comment
-	if err := h.documentService.DeleteDocumentComment(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
+	if err := h.documentusecase.DeleteDocumentComment(c.Request.Context(), uint(id), userID.(uuid.UUID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete comment: %s", err.Error())})
 		return
 	}
@@ -669,7 +613,7 @@ func (h *DocumentHandler) GetDocumentVersions(c *gin.Context) {
 	}
 
 	// Get versions
-	versions, err := h.documentService.GetDocumentVersions(c.Request.Context(), uint(id), userID.(uuid.UUID))
+	versions, err := h.documentusecase.GetDocumentVersions(c.Request.Context(), uint(id), userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get versions: %s", err.Error())})
 		return

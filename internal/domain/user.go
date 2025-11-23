@@ -31,7 +31,9 @@ type Permission struct {
 	ID          string     `json:"id" gorm:"primaryKey;type:uuid;default:gen_random_uuid()" example:"550e8400-e29b-41d4-a716-446655440000"`
 	Name        string     `json:"name" gorm:"type:varchar(100);not null;uniqueIndex" validate:"required" example:"server.create"`
 	Resource    string     `json:"resource" gorm:"type:varchar(100);not null;index" validate:"required" example:"server"`
+	SubResource string     `json:"sub_resource" gorm:"type:varchar(100);index" example:"deployment"` // For K8s: deployment, pod, service
 	Action      string     `json:"action" gorm:"type:varchar(50);not null;index" validate:"required" example:"create"`
+	Scope       string     `json:"scope" gorm:"type:varchar(50);default:'global'" example:"global"` // global, environment, resource
 	Description string     `json:"description" gorm:"type:text" example:"Create new servers"`
 	IsSystem    bool       `json:"is_system" gorm:"type:boolean;default:false" example:"false"`
 	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime" example:"2024-01-01T00:00:00Z"`
@@ -67,6 +69,8 @@ type User struct {
 	PasswordChangedAt *time.Time   `json:"password_changed_at,omitempty" swaggertype:"string" example:"2024-01-01T00:00:00Z"`
 	MFAEnabled        bool         `json:"mfa_enabled" gorm:"type:boolean;default:false" example:"false"`
 	MFASecret         string       `json:"-" gorm:"type:varchar(255)"` // TOTP secret, never exposed
+	AuthProvider      string       `json:"auth_provider" gorm:"type:varchar(50);default:'local'"`
+	ProviderID        string       `json:"provider_id" gorm:"type:varchar(255)"`
 	Settings          UserSettings `json:"settings" gorm:"type:jsonb"`
 	CreatedAt         time.Time    `json:"created_at" gorm:"autoCreateTime" example:"2024-01-01T00:00:00Z"`
 	UpdatedAt         time.Time    `json:"updated_at" gorm:"autoUpdateTime" example:"2024-01-01T00:00:00Z"`
@@ -105,6 +109,40 @@ func (u *User) HasRole(roleName string) bool {
 		return false
 	}
 	return u.Role.Name == roleName
+}
+
+// HasPermissionInEnvironment checks if the user has a specific permission in an environment
+// This is a helper method that should be used in conjunction with AuthorizationUsecase
+func (u *User) HasPermissionInEnvironment(permission, environmentID string) bool {
+	// This is a simplified check based on role permissions
+	// For complete authorization, use AuthorizationUsecase.CheckEnvironmentPermission
+	if u.Role == nil {
+		return false
+	}
+	for _, p := range u.Role.Permissions {
+		if p.Name == permission {
+			return true
+		}
+	}
+	return false
+}
+
+// HasResourcePermission checks if the user has a specific permission on a resource
+// This is a helper method that should be used in conjunction with AuthorizationUsecase
+func (u *User) HasResourcePermission(resourceType, resourceID, action string) bool {
+	// This is a simplified check based on role permissions
+	// For complete authorization including resource-specific permissions,
+	// use AuthorizationUsecase.CheckResourcePermission
+	if u.Role == nil {
+		return false
+	}
+	permissionName := resourceType + "." + action
+	for _, p := range u.Role.Permissions {
+		if p.Name == permissionName || p.Resource == resourceType && p.Action == action {
+			return true
+		}
+	}
+	return false
 }
 
 // RefreshToken represents a refresh token for JWT authentication

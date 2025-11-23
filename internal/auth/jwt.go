@@ -14,16 +14,15 @@ import (
 )
 
 type JWTService struct {
-	cfg config.AuthConfig
+	cfg *config.AuthConfig
 }
 
-func NewJWTService(cfg config.AuthConfig) *JWTService {
+func NewJWTService(cfg *config.AuthConfig) *JWTService {
 	return &JWTService{cfg: cfg}
 }
 
-// GenerateAccessToken generates a JWT access token for a user
-func (js *JWTService) GenerateAccessToken(user *domain.User, permissions []string) (string, error) {
-	expiresAt := time.Now().Add(time.Duration(js.cfg.JWTExpiration) * time.Second)
+func (s *JWTService) GenerateAccessToken(user *domain.User, permissions []string) (string, error) {
+	expiresAt := time.Now().Add(time.Duration(s.cfg.JWTExpiration) * time.Second)
 
 	claims := jwt.MapClaims{
 		"user_id":     user.ID,
@@ -42,16 +41,15 @@ func (js *JWTService) GenerateAccessToken(user *domain.User, permissions []strin
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(js.cfg.JWTSecret))
+	return token.SignedString([]byte(s.cfg.JWTSecret))
 }
 
-// ValidateAccessToken validates a JWT access token and returns claims
-func (js *JWTService) ValidateAccessToken(tokenString string) (*domain.TokenClaims, error) {
+func (s *JWTService) ValidateAccessToken(tokenString string) (*domain.TokenClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return []byte(js.cfg.JWTSecret), nil
+		return []byte(s.cfg.JWTSecret), nil
 	})
 
 	if err != nil {
@@ -97,8 +95,7 @@ func (js *JWTService) ValidateAccessToken(tokenString string) (*domain.TokenClai
 	return tokenClaims, nil
 }
 
-// GenerateRefreshToken generates a random refresh token
-func (js *JWTService) GenerateRefreshToken() (string, error) {
+func (s *JWTService) GenerateRefreshToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -106,8 +103,7 @@ func (js *JWTService) GenerateRefreshToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// HashPassword hashes a password using bcrypt
-func HashPassword(password string) (string, error) {
+func (s *JWTService) HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
@@ -115,7 +111,6 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// CheckPassword compares a hashed password with a plain password
-func CheckPassword(hashedPassword, password string) error {
+func (s *JWTService) CheckPassword(hashedPassword, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }

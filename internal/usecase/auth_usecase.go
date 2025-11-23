@@ -35,8 +35,8 @@ type authUsecase struct {
 	sessionRepo         repository.SessionRepository
 	loginAttemptRepo    repository.LoginAttemptRepository
 	notificationUsecase NotificationUsecase
-	jwtService          *auth.JWTService
 	cfg                 config.AuthConfig
+	jwt                 *auth.JWTService
 	maxFailedAttempts   int
 	lockDuration        time.Duration
 }
@@ -46,8 +46,9 @@ func NewAuthUsecase(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	loginAttemptRepo repository.LoginAttemptRepository,
-	notificationUsecase domain.NotificationUsecase,
+	notificationUsecase NotificationUsecase,
 	cfg config.AuthConfig,
+	jwt *auth.JWTService,
 ) AuthUsecase {
 	return &authUsecase{
 		authRepo:            authRepo,
@@ -55,8 +56,8 @@ func NewAuthUsecase(
 		sessionRepo:         sessionRepo,
 		loginAttemptRepo:    loginAttemptRepo,
 		notificationUsecase: notificationUsecase,
-		jwtService:          auth.NewJWTService(cfg),
 		cfg:                 cfg,
+		jwt:                 jwt,
 		maxFailedAttempts:   5,
 		lockDuration:        30 * time.Minute,
 	}
@@ -73,7 +74,7 @@ func (u *authUsecase) Register(ctx context.Context, user *domain.User, password 
 		return nil, fmt.Errorf("user with this username already exists")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(password)
+	hashedPassword, err := u.jwt.HashPassword(password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -86,7 +87,7 @@ func (u *authUsecase) Register(ctx context.Context, user *domain.User, password 
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	verificationToken, err := u.jwtService.GenerateRefreshToken()
+	verificationToken, err := u.jwt.GenerateRefreshToken()
 	if err != nil {
 		fmt.Printf("Failed to generate verification token: %v\n", err)
 	} else {
@@ -95,7 +96,7 @@ func (u *authUsecase) Register(ctx context.Context, user *domain.User, password 
 			Token:     verificationToken,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		}
-		_ = u.authRepo.CreateRefreshToken(ctx, refreshToken)
+		_ = u.authRepo.SaveRefreshToken(ctx, refreshToken)
 
 		if u.notificationUsecase != nil {
 			go func() {
@@ -205,7 +206,7 @@ func (u *authUsecase) RefreshToken(ctx context.Context, refreshTokenStr string) 
 }
 
 func (u *authUsecase) ValidateToken(ctx context.Context, token string) (*domain.User, error) {
-	claims, err := u.jwtService.ValidateAccessToken(token)
+	claims, err := u.jwt.ValidateAccessToken(token)
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +219,11 @@ func (u *authUsecase) ChangePassword(ctx context.Context, userID string, request
 		return fmt.Errorf("user not found")
 	}
 
-	if err := u.authRepo.ComparePassword(user.Password, request.OldPassword); err != nil {
+	if err := u.jwt.CheckPassword(user.Password, request.OldPassword); err != nil {
 		return fmt.Errorf("invalid old password")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(request.NewPassword)
+	hashedPassword, err := u.jwt.HashPassword(request.NewPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -241,7 +242,7 @@ func (u *authUsecase) RequestPasswordReset(ctx context.Context, request *domain.
 		return nil
 	}
 
-	resetToken, err := u.jwtService.GenerateRefreshToken()
+	resetToken, err := u.jwt.GenerateRefreshToken()
 	if err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func (u *authUsecase) RequestPasswordReset(ctx context.Context, request *domain.
 		Token:     resetToken,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	}
-	if err := u.authRepo.CreateRefreshToken(ctx, refreshToken); err != nil {
+	if err := u.authRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
 		return err
 	}
 
@@ -282,7 +283,7 @@ func (u *authUsecase) ResetPassword(ctx context.Context, request *domain.Passwor
 		return fmt.Errorf("invalid or expired reset token")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(request.NewPassword)
+	hashedPassword, err := u.jwt.HashPassword(request.NewPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -334,7 +335,7 @@ func (u *authUsecase) ResendVerificationEmail(ctx context.Context, email string)
 		return fmt.Errorf("email already verified")
 	}
 
-	verificationToken, err := u.jwtService.GenerateRefreshToken()
+	verificationToken, err := u.jwt.GenerateRefreshToken()
 	if err != nil {
 		return err
 	}
@@ -344,7 +345,7 @@ func (u *authUsecase) ResendVerificationEmail(ctx context.Context, email string)
 		Token:     verificationToken,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
-	if err := u.authRepo.CreateRefreshToken(ctx, refreshToken); err != nil {
+	if err := u.authRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
 		return err
 	}
 
@@ -408,7 +409,7 @@ func (u *authUsecase) validateCredentials(ctx context.Context, username, passwor
 		return nil, fmt.Errorf("account is locked")
 	}
 
-	if err := u.authRepo.ComparePassword(user.Password, password); err != nil {
+	if err := u.jwt.CheckPassword(user.Password, password); err != nil {
 		return user, fmt.Errorf("invalid credentials")
 	}
 
@@ -423,12 +424,12 @@ func (u *authUsecase) generateTokens(ctx context.Context, user *domain.User) (*d
 		}
 	}
 
-	accessToken, err := u.jwtService.GenerateAccessToken(user, permissions)
+	accessToken, err := u.jwt.GenerateAccessToken(user, permissions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := u.jwtService.GenerateRefreshToken()
+	refreshToken, err := u.jwt.GenerateRefreshToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -438,7 +439,7 @@ func (u *authUsecase) generateTokens(ctx context.Context, user *domain.User) (*d
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(time.Duration(u.cfg.RefreshTokenExpiry) * time.Second),
 	}
-	if err := u.authRepo.CreateRefreshToken(ctx, refreshTokenModel); err != nil {
+	if err := u.authRepo.SaveRefreshToken(ctx, refreshTokenModel); err != nil {
 		return nil, fmt.Errorf("failed to store refresh token: %w", err)
 	}
 

@@ -1,4 +1,3 @@
-
 package handler
 
 import (
@@ -6,32 +5,113 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/usecase"
+	"github.com/unitechio/einfra-be/pkg/errorx"
 )
 
-// UserSettingsHandler handles user settings-related requests.
+// UserSettingsHandler handles user settings API endpoints
 type UserSettingsHandler struct {
-	userUsecase domain.UserUsecase
+	usecase usecase.UserSettingsUsecase
 }
 
-// NewUserSettingsHandler creates a new UserSettingsHandler.
-func NewUserSettingsHandler(userUsecase domain.UserUsecase) *UserSettingsHandler {
-	return &UserSettingsHandler{userUsecase: userUsecase}
+// NewUserSettingsHandler creates a new handler instance
+func NewUserSettingsHandler(us usecase.UserSettingsUsecase) *UserSettingsHandler {
+	return &UserSettingsHandler{usecase: us}
 }
 
-// UpdateSettings handles the request to update user settings.
-func (h *UserSettingsHandler) UpdateSettings(c *gin.Context) {
-	var settings domain.UserSettings
-	if err := c.ShouldBindJSON(&settings); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// Get retrieves user settings for a given user ID
+// @Summary Get user settings
+// @Description Retrieve settings for a specific user
+// @Tags UserSettings
+// @Accept json
+// @Produce json
+// @Param userId path string true "User ID"
+// @Success 200 {object} domain.UserSettings
+// @Failure 404 {object} map[string]string
+// @Router /users/{userId}/settings [get]
+func (h *UserSettingsHandler) Get(c *gin.Context) {
+	userID := c.Param("userId")
+	settings, err := h.usecase.GetUserSettings(c.Request.Context(), userID)
+	if err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeInternalError, "Failed to get user settings"))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user settings"})
 		return
 	}
+	c.JSON(http.StatusOK, settings)
+}
 
-	userID := c.Param("id") // Or get from authenticated user
-
-	if err := h.userUsecase.UpdateUserSettings(c.Request.Context(), userID, settings); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+// Update performs a full update of user settings
+// @Summary Update user settings
+// @Description Replace the entire settings object for a user
+// @Tags UserSettings
+// @Accept json
+// @Produce json
+// @Param userId path string true "User ID"
+// @Param settings body domain.UserSettings true "Settings"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /users/{userId}/settings [put]
+func (h *UserSettingsHandler) Update(c *gin.Context) {
+	userID := c.Param("userId")
+	var update domain.UserSettingsUpdate
+	if err := c.ShouldBindJSON(&update); err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeBadRequest, "Invalid request body"))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
+	if err := h.usecase.UpdateUserSettings(c.Request.Context(), userID, &update); err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeInternalError, "Failed to update settings"))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update settings"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Settings updated"})
+}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
+// Patch performs a partial update of user settings
+// @Summary Patch user settings
+// @Description Update selected fields of user settings
+// @Tags UserSettings
+// @Accept json
+// @Produce json
+// @Param userId path string true "User ID"
+// @Param update body domain.UserSettingsUpdate true "Partial update"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /users/{userId}/settings [patch]
+func (h *UserSettingsHandler) Patch(c *gin.Context) {
+	userID := c.Param("userId")
+	var upd domain.UserSettingsUpdate
+	if err := c.ShouldBindJSON(&upd); err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeBadRequest, "Invalid request body"))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	if err := h.usecase.UpdateUserSettings(c.Request.Context(), userID, &upd); err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeInternalError, "Failed to patch settings"))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to patch settings"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Settings patched"})
+}
+
+// Reset resets a user's settings to defaults
+// @Summary Reset user settings
+// @Description Reset settings to default values for a user
+// @Tags UserSettings
+// @Accept json
+// @Produce json
+// @Param userId path string true "User ID"
+// @Success 200 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /users/{userId}/settings/reset [post]
+func (h *UserSettingsHandler) Reset(c *gin.Context) {
+	userID := c.Param("userId")
+	if err := h.usecase.ResetToDefaults(c.Request.Context(), userID); err != nil {
+		c.Error(errorx.Wrap(err, errorx.CodeInternalError, "Failed to reset settings"))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset settings"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Settings reset to defaults"})
 }

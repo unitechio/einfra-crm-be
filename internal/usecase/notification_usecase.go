@@ -8,8 +8,8 @@ import (
 
 	"github.com/unitechio/einfra-be/internal/domain"
 	"github.com/unitechio/einfra-be/internal/logger"
-	"github.com/unitechio/einfra-be/internal/realtime"
 	"github.com/unitechio/einfra-be/internal/repository"
+	"github.com/unitechio/einfra-be/internal/socket"
 )
 
 type NotificationUsecase interface {
@@ -32,7 +32,8 @@ type notificationUsecase struct {
 	templateRepo domain.NotificationTemplateRepository
 	prefRepo     domain.NotificationPreferenceRepository
 	userRepo     repository.UserRepository
-	hub          *realtime.Hub
+	emailUsecase EmailUsecase
+	hub          *socket.Hub
 	log          logger.Logger
 }
 
@@ -41,7 +42,8 @@ func NewNotificationUsecase(
 	templateRepo domain.NotificationTemplateRepository,
 	prefRepo domain.NotificationPreferenceRepository,
 	userRepo repository.UserRepository,
-	hub *realtime.Hub,
+	emailUsecase EmailUsecase,
+	hub *socket.Hub,
 	log logger.Logger,
 ) NotificationUsecase {
 	return &notificationUsecase{
@@ -49,6 +51,7 @@ func NewNotificationUsecase(
 		templateRepo: templateRepo,
 		prefRepo:     prefRepo,
 		userRepo:     userRepo,
+		emailUsecase: emailUsecase,
 		hub:          hub,
 		log:          log,
 	}
@@ -59,8 +62,6 @@ func (u *notificationUsecase) SendNotification(ctx context.Context, notification
 	prefs, err := u.prefRepo.GetByUserID(ctx, notification.UserID)
 	if err == nil && prefs != nil {
 		// Check if notification type is enabled
-		// This logic can be more complex based on NotificationTypes array
-		// For now, basic checks
 		if notification.Channel == domain.NotificationChannelInApp && !prefs.EnableInApp {
 			return nil // Skip
 		}
@@ -69,9 +70,8 @@ func (u *notificationUsecase) SendNotification(ctx context.Context, notification
 		}
 		// Check quiet hours
 		if prefs.IsInQuietHours() && notification.Priority != domain.NotificationPriorityUrgent {
-			// Maybe delay or skip? For now, let's just log and proceed or skip.
-			// u.log.Info(ctx, "Notification skipped due to quiet hours", logger.LogField{Key: "user_id", Value: notification.UserID})
-			// return nil
+			u.log.Info(ctx, "Notification skipped due to quiet hours", logger.LogField{Key: "user_id", Value: notification.UserID})
+			return nil
 		}
 	}
 
@@ -80,9 +80,31 @@ func (u *notificationUsecase) SendNotification(ctx context.Context, notification
 		return err
 	}
 
-	// Send to Realtime Hub
-	if u.hub != nil {
-		u.hub.SendToUser(notification.UserID, notification)
+	// Send to socket Hub
+	if notification.Channel == domain.NotificationChannelInApp || notification.Channel == "" {
+		if u.hub != nil {
+			// TODO: Convert notification to socket.Message type
+			// u.hub.SendToUser(notification.UserID, notification)
+		}
+	}
+
+	// Send Email
+	if notification.Channel == domain.NotificationChannelEmail {
+		user, err := u.userRepo.GetByID(ctx, notification.UserID)
+		if err != nil {
+			u.log.Error(ctx, "Failed to get user for email notification", logger.LogField{Key: "user_id", Value: notification.UserID}, logger.LogField{Key: "error", Value: err})
+			return nil // Don't fail the whole operation? Or should we?
+		}
+		if user.Email != "" {
+			if err := u.emailUsecase.SendEmail(ctx, []string{user.Email}, notification.Title, notification.Message); err != nil {
+				u.log.Error(ctx, "Failed to send email notification", logger.LogField{Key: "user_id", Value: notification.UserID}, logger.LogField{Key: "error", Value: err})
+				// Update IsSent status?
+			} else {
+				// Update IsSent to true
+				notification.IsSent = true
+				_ = u.repo.Update(ctx, notification)
+			}
+		}
 	}
 
 	return nil

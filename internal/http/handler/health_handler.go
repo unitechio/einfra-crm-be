@@ -1,4 +1,3 @@
-
 package handler
 
 import (
@@ -7,10 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HealthHandler handles health check API requests.
 type HealthHandler struct{}
 
-// NewHealthHandler creates a new health handler.
 func NewHealthHandler() *HealthHandler {
 	return &HealthHandler{}
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/unitechio/einfra-be/internal/repository"
 )
 
-type IDocumentService interface {
+type DocumentUsecase interface {
 	UploadDocument(ctx context.Context, file *multipart.FileHeader, uploadRequest dto.DocumentUploadRequest, userID uuid.UUID) (*domain.Document, error)
 	UpdateDocument(ctx context.Context, id uint, updateRequest dto.DocumentUpdateRequest, userID uuid.UUID) (*domain.Document, error)
 	DeleteDocument(ctx context.Context, id uint, userID uuid.UUID) error
@@ -42,19 +42,19 @@ type IDocumentService interface {
 	GetDocumentVersions(ctx context.Context, documentID uint, userID uuid.UUID) ([]domain.DocumentVersion, error)
 }
 
-type DocumentService struct {
-	documentRepo   repository.IDocumentRepository
-	storageService storage.IStorage
+type documentUsecase struct {
+	documentRepo   repository.DocumentRepository
+	storageUsecase storage.IStorage
 }
 
-func NewDocumentService(documentRepo repository.IDocumentRepository, storageService storage.IStorage) IDocumentService {
-	return &DocumentService{
+func NewDocumentUsecase(documentRepo repository.DocumentRepository, storageUsecase storage.IStorage) DocumentUsecase {
+	return &documentUsecase{
 		documentRepo:   documentRepo,
-		storageService: storageService,
+		storageUsecase: storageUsecase,
 	}
 }
 
-func (s *DocumentService) generateDocumentCode(entityType string) string {
+func (s *documentUsecase) generateDocumentCode(entityType string) string {
 	prefix := "DOC"
 
 	if entityType != "" {
@@ -76,7 +76,7 @@ func (s *DocumentService) generateDocumentCode(entityType string) string {
 }
 
 // getUserPermissionLevel returns the permission level for a user on a document
-func (s *DocumentService) getUserPermissionLevel(ctx context.Context, document *domain.Document, userID uuid.UUID) string {
+func (s *documentUsecase) getUserPermissionLevel(ctx context.Context, document *domain.Document, userID uuid.UUID) string {
 	// Document uploader always has owner permission
 	if document.UploadedBy == userID {
 		return domain.PermissionOwner
@@ -94,19 +94,19 @@ func (s *DocumentService) getUserPermissionLevel(ctx context.Context, document *
 // Document CRUD methods
 
 // UploadDocument uploads a new document and stores its metadata
-func (s *DocumentService) UploadDocument(
+func (s *documentUsecase) UploadDocument(
 	ctx context.Context,
 	file *multipart.FileHeader,
 	uploadRequest dto.DocumentUploadRequest,
 	userID uuid.UUID,
 ) (*domain.Document, error) {
 	// Check if file type is allowed
-	if !s.storageService.IsAllowedFileType(file.Filename) {
+	if !s.storageUsecase.IsAllowedFileType(file.Filename) {
 		return nil, errors.New("file type not allowed")
 	}
 
-	// Use storage service to upload the file
-	storagePath, err := s.storageService.UploadFile(ctx, file, uploadRequest.EntityType, uploadRequest.EntityID)
+	// Use storage Usecase to upload the file
+	storagePath, err := s.storageUsecase.UploadFile(ctx, file, uploadRequest.EntityType, uploadRequest.EntityID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload file to storage: %w", err)
 	}
@@ -125,7 +125,7 @@ func (s *DocumentService) UploadDocument(
 
 	if err := s.documentRepo.CreateDocument(ctx, document); err != nil {
 		// Document metadata creation failed, clean up the uploaded file
-		cleanupErr := s.storageService.DeleteFile(ctx, storagePath)
+		cleanupErr := s.storageUsecase.DeleteFile(ctx, storagePath)
 		if cleanupErr != nil {
 			// Log the cleanup error but continue with the original error
 			// In a real implementation, you might want to log this error
@@ -153,7 +153,7 @@ func (s *DocumentService) UploadDocument(
 }
 
 // UpdateDocument updates document metadata
-func (s *DocumentService) UpdateDocument(
+func (s *documentUsecase) UpdateDocument(
 	ctx context.Context,
 	id uint,
 	updateRequest dto.DocumentUpdateRequest,
@@ -187,7 +187,7 @@ func (s *DocumentService) UpdateDocument(
 }
 
 // DeleteDocument soft-deletes a document
-func (s *DocumentService) DeleteDocument(ctx context.Context, id uint, userID uuid.UUID) error {
+func (s *documentUsecase) DeleteDocument(ctx context.Context, id uint, userID uuid.UUID) error {
 	// Get existing document
 	document, err := s.documentRepo.GetDocumentByID(ctx, id)
 	if err != nil {
@@ -209,7 +209,7 @@ func (s *DocumentService) DeleteDocument(ctx context.Context, id uint, userID uu
 }
 
 // GetDocumentByID retrieves a document by ID with permission check
-func (s *DocumentService) GetDocumentByID(ctx context.Context, id uint, userID uuid.UUID) (*domain.Document, error) {
+func (s *documentUsecase) GetDocumentByID(ctx context.Context, id uint, userID uuid.UUID) (*domain.Document, error) {
 	// Get document
 	document, err := s.documentRepo.GetDocumentByID(ctx, id)
 	if err != nil {
@@ -230,7 +230,7 @@ func (s *DocumentService) GetDocumentByID(ctx context.Context, id uint, userID u
 }
 
 // GetDocumentByCode retrieves a document by its unique code with permission check
-func (s *DocumentService) GetDocumentByCode(ctx context.Context, code string, userID uuid.UUID) (*domain.Document, error) {
+func (s *documentUsecase) GetDocumentByCode(ctx context.Context, code string, userID uuid.UUID) (*domain.Document, error) {
 	// Get document
 	document, err := s.documentRepo.GetDocumentByCode(ctx, code)
 	if err != nil {
@@ -251,7 +251,7 @@ func (s *DocumentService) GetDocumentByCode(ctx context.Context, code string, us
 }
 
 // GetDocuments retrieves documents with filtering and pagination
-func (s *DocumentService) GetDocuments(ctx context.Context, filter dto.DocumentFilter, userID uuid.UUID) (*dto.PaginatedDocumentsResponse, error) {
+func (s *documentUsecase) GetDocuments(ctx context.Context, filter dto.DocumentFilter, userID uuid.UUID) (*dto.PaginatedDocumentsResponse, error) {
 	if filter.Page < 1 {
 		filter.Page = 1
 	}
@@ -297,7 +297,7 @@ func (s *DocumentService) GetDocuments(ctx context.Context, filter dto.DocumentF
 			DocumentType:   doc.DocumentType,
 			FileSize:       doc.FileSize,
 			UploadedBy:     doc.UploadedBy,
-			UploaderName:   doc.Uploader.DisplayName,
+			UploaderName:   doc.Uploader.Username,
 			CreatedAt:      doc.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:      doc.UpdatedAt.Format(time.RFC3339),
 			UserPermission: permissionLevel,
@@ -310,7 +310,7 @@ func (s *DocumentService) GetDocuments(ctx context.Context, filter dto.DocumentF
 }
 
 // GetDocumentsByEntityID retrieves documents for a specific entity
-func (s *DocumentService) GetDocumentsByEntityID(
+func (s *documentUsecase) GetDocumentsByEntityID(
 	ctx context.Context,
 	entityType string,
 	entityID uint,
@@ -348,7 +348,7 @@ func (s *DocumentService) GetDocumentsByEntityID(
 			DocumentType:   doc.DocumentType,
 			FileSize:       doc.FileSize,
 			UploadedBy:     doc.UploadedBy,
-			UploaderName:   doc.Uploader.DisplayName,
+			UploaderName:   doc.Uploader.Username,
 			CreatedAt:      doc.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:      doc.UpdatedAt.Format(time.RFC3339),
 			UserPermission: permissionLevel,
@@ -361,7 +361,7 @@ func (s *DocumentService) GetDocumentsByEntityID(
 }
 
 // DownloadDocument retrieves a document's content with permission check
-func (s *DocumentService) DownloadDocument(
+func (s *documentUsecase) DownloadDocument(
 	ctx context.Context,
 	id uint,
 	userID uuid.UUID,
@@ -373,7 +373,7 @@ func (s *DocumentService) DownloadDocument(
 	}
 
 	// Download the file from storage
-	fileBytes, err := s.storageService.DownloadFile(ctx, document.DocumentPath)
+	fileBytes, err := s.storageUsecase.DownloadFile(ctx, document.DocumentPath)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("failed to download file: %w", err)
 	}
@@ -384,7 +384,7 @@ func (s *DocumentService) DownloadDocument(
 // Permission management methods
 
 // AddDocumentPermission adds a new permission for a user or role
-func (s *DocumentService) AddDocumentPermission(
+func (s *documentUsecase) AddDocumentPermission(
 	ctx context.Context,
 	request dto.DocumentPermissionRequest,
 	userID uuid.UUID,
@@ -431,7 +431,7 @@ func (s *DocumentService) AddDocumentPermission(
 }
 
 // UpdateDocumentPermission updates an existing permission
-func (s *DocumentService) UpdateDocumentPermission(
+func (s *documentUsecase) UpdateDocumentPermission(
 	ctx context.Context,
 	id uint,
 	request dto.DocumentPermissionRequest,
@@ -479,7 +479,7 @@ func (s *DocumentService) UpdateDocumentPermission(
 }
 
 // RemoveDocumentPermission removes a permission
-func (s *DocumentService) RemoveDocumentPermission(
+func (s *documentUsecase) RemoveDocumentPermission(
 	ctx context.Context,
 	id uint,
 	userID uuid.UUID,
@@ -522,7 +522,7 @@ func (s *DocumentService) RemoveDocumentPermission(
 }
 
 // GetDocumentPermissions retrieves all permissions for a document
-func (s *DocumentService) GetDocumentPermissions(
+func (s *documentUsecase) GetDocumentPermissions(
 	ctx context.Context,
 	documentID uint,
 	userID uuid.UUID,
@@ -547,7 +547,7 @@ func (s *DocumentService) GetDocumentPermissions(
 }
 
 // CheckUserPermission checks if a user has a specific permission level on a document
-func (s *DocumentService) CheckUserPermission(
+func (s *documentUsecase) CheckUserPermission(
 	ctx context.Context,
 	documentID uint,
 	userID uuid.UUID,
@@ -559,7 +559,7 @@ func (s *DocumentService) CheckUserPermission(
 // Document comments methods
 
 // AddDocumentComment adds a new comment to a document
-func (s *DocumentService) AddDocumentComment(
+func (s *documentUsecase) AddDocumentComment(
 	ctx context.Context,
 	request dto.DocumentCommentRequest,
 	userID uuid.UUID,
@@ -595,7 +595,7 @@ func (s *DocumentService) AddDocumentComment(
 }
 
 // UpdateDocumentComment updates an existing comment
-func (s *DocumentService) UpdateDocumentComment(
+func (s *documentUsecase) UpdateDocumentComment(
 	ctx context.Context,
 	id uint,
 	comment string,
@@ -636,7 +636,7 @@ func (s *DocumentService) UpdateDocumentComment(
 }
 
 // DeleteDocumentComment deletes a comment
-func (s *DocumentService) DeleteDocumentComment(ctx context.Context, id uint, userID uuid.UUID) error {
+func (s *documentUsecase) DeleteDocumentComment(ctx context.Context, id uint, userID uuid.UUID) error {
 	// Get document comments
 	comments, err := s.documentRepo.GetDocumentComments(ctx, 0) // We don't know document ID yet
 	if err != nil {
@@ -680,7 +680,7 @@ func (s *DocumentService) DeleteDocumentComment(ctx context.Context, id uint, us
 }
 
 // GetDocumentComments retrieves all comments for a document
-func (s *DocumentService) GetDocumentComments(
+func (s *documentUsecase) GetDocumentComments(
 	ctx context.Context,
 	documentID uint,
 	userID uuid.UUID,
@@ -707,7 +707,7 @@ func (s *DocumentService) GetDocumentComments(
 // Document versions methods
 
 // GetDocumentVersions retrieves all versions of a document
-func (s *DocumentService) GetDocumentVersions(ctx context.Context, documentID uint, userID uuid.UUID) ([]domain.DocumentVersion, error) {
+func (s *documentUsecase) GetDocumentVersions(ctx context.Context, documentID uint, userID uuid.UUID) ([]domain.DocumentVersion, error) {
 	hasPermission, err := s.CheckUserPermission(ctx, documentID, userID, domain.PermissionView)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check permission: %w", err)

@@ -18,8 +18,16 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/unitechio/einfra-be/internal/auth"
 	"github.com/unitechio/einfra-be/internal/config"
+	"github.com/unitechio/einfra-be/internal/http/handler"
 	"github.com/unitechio/einfra-be/internal/http/router"
 	"github.com/unitechio/einfra-be/internal/infrastructure/database"
+	storage "github.com/unitechio/einfra-be/internal/infrastructure/filestorage"
+	"github.com/unitechio/einfra-be/internal/logger"
+	"github.com/unitechio/einfra-be/internal/repository"
+	"github.com/unitechio/einfra-be/internal/usecase"
+	"github.com/unitechio/einfra-be/pkg/docker"
+	"github.com/unitechio/einfra-be/pkg/security"
+	"github.com/unitechio/einfra-be/pkg/ssh"
 )
 
 func main() {
@@ -35,93 +43,257 @@ func main() {
 		log.Fatalf("❌ Failed to load configuration: %v", err)
 	}
 
-	dbConnections, err := database.InitDatabases(cfg.Databases)
+	// --- Logger ---
+	_ = logger.NewZapLogger(logger.LoggerConfig{
+		Level:      logger.LogLevel(cfg.Logging.Level),
+		OutputPath: cfg.Logging.FilePath,
+		DevMode:    cfg.Server.Mode == "debug",
+	})
+
+	db, err := database.NewPostgresConnection(cfg.Database)
 	if err != nil {
-		log.Fatalf("❌ Failed to initialize databases: %v", err)
+		log.Fatalf("Unable to connect to database: %v\n", err)
 	}
-	defer database.CloseAll(dbConnections)
 
-	dbProvider := provider.NewDatabaseProvider(dbConnections)
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("failed to get database instance: %v", err)
+	}
+	defer sqlDB.Close()
 
-	ocsClient := client.NewOCSClient(string(constants.OCSUrlBase))
-	crmClient := client.NewCRMClient(string(constants.CRMUrlBase))
+	if cfg.Database.AutoMigrate {
+		if err := database.AutoMigrate(db); err != nil {
+			log.Fatalf("Could not run database migrations: %v\n", err)
+		}
+		if err := database.SeedDefaultData(db); err != nil {
+			log.Printf("Warning: Failed to seed default data: %v", err)
+		}
+	}
 
-	limiter := usecase.NewPlateChangeLimiter(3, 5*time.Minute)
+	jwtService := auth.NewJWTService(&cfg.Auth)
+	storage, err := storage.NewMinioStorage(cfg.Minio)
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize storage service: %v", err)
+	}
+
+	encryptionService, err := security.NewAESEncryption(cfg.Encryption.Key)
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize encryption service: %v", err)
+	}
+	credentialAuditor := security.NewSimpleAuditor()
 
 	// Repositories
-	userRepo := repository.NewUserRepository(dbProvider)
-	roleRepo := repository.NewRoleRepository(dbProvider)
-	permissionRepo := repository.NewPermissionRepository(dbProvider)
-	userRoleRepo := repository.NewUserRoleRepository(dbProvider)
-	rolePermissionRepo := repository.NewRolePermissionRepository(dbProvider)
-	auditRepo := repository.NewAuditLogRepository(dbProvider)
-	authRepo := repository.NewAuthRepository(dbProvider)
-	parkingRepo := repository.NewParkingRepository(dbConnections)
-	sqlRepo := repository.NewSqlRepository(dbConnections)
-	imRepo := repository.NewIMRepository(dbProvider)
-	customerRepo := repository.NewCustomerRepository(dbConnections, sqlRepo)
-	vehicleRepo := repository.NewVehicleRepository(dbConnections, imRepo, customerRepo)
-	systemSettingRepo := repository.NewSystemSettingRepository(dbProvider)
-	featureFlagRepo := repository.NewFeatureFlagRepository(dbProvider)
+	userRepo := repository.NewUserRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	permissionRepo := repository.NewPermissionRepository(db)
+	auditRepo := repository.NewAuditRepository(db)
+	authRepo := repository.NewAuthRepository(db)
+	sessionRepo := repository.NewSessionRepository(db)
+	loginAttemptRepo := repository.NewLoginAttemptRepository(db)
+	systemSettingRepo := repository.NewSystemSettingRepository(db)
+	featureFlagRepo := repository.NewFeatureFlagRepository(db)
+	userSettingsRepo := repository.NewUserSettingsRepository(db)
+	documentRepo := repository.NewDocumentRepository(db)
+	authorizationRepo := repository.NewAuthorizationRepository(db)
+	environmentRepo := repository.NewEnvironmentRepository(db)
 
-	jwtService := auth.NewJWTService(&cfg.JWT)
+	// Infrastructure Repositories
+	serverRepo := repository.NewServerRepository(db, encryptionService, credentialAuditor)
+	dockerRepo := repository.NewDockerHostRepository(db)
+	dockerStackRepo := repository.NewDockerStackRepository(db)
+	k8sRepo := repository.NewK8sClusterRepository(db)
+	harborRepo := repository.NewHarborRegistryRepository(db)
+	k8sBackupRepo := repository.NewK8sBackupRepository(db)
+	imageDeploymentRepo := repository.NewImageDeploymentRepository(db)
+	emailRepo := repository.NewEmailRepository(db)
+	notificationRepo := repository.NewNotificationRepository(db)
+	notificationTemplateRepo := repository.NewNotificationTemplateRepository(db)
+	notificationPrefRepo := repository.NewNotificationPreferenceRepository(db)
+	licenseRepo := repository.NewLicenseRepository(db)
+	imageRepo := repository.NewImageRepository(db)
+
+	// Server Feature Repositories
+	serverBackupRepo := repository.NewServerBackupRepository(db)
+	serverServiceRepo := repository.NewServerServiceRepository(db)
+	serverCronjobRepo := repository.NewServerCronjobRepository(db)
+	serverNetworkRepo := repository.NewServerNetworkRepository(db)
+	serverIPTableRepo := repository.NewServerIPTableRepository(db)
 
 	// Usecases
-	authUsecase := usecase.NewAuthUsecase(dbProvider, userRepo, roleRepo, userRoleRepo, rolePermissionRepo, authRepo, jwtService, &cfg.JWT)
-	userUsecase := usecase.NewUserUsecase(userRepo, roleRepo, userRoleRepo, jwtService, dbProvider)
-	roleUsecase := usecase.NewRoleUsecase(roleRepo, rolePermissionRepo, dbProvider)
-	userRoleUsecase := usecase.NewUserRoleUseCase(dbProvider, userRoleRepo)
+	authUsecase := usecase.NewAuthUsecase(authRepo, userRepo, sessionRepo, loginAttemptRepo, nil, cfg.Auth, jwtService)
+	userUsecase := usecase.NewUserUsecase(userRepo, roleRepo, authRepo, jwtService)
+	roleUsecase := usecase.NewRoleUsecase(roleRepo)
 	permissionUsecase := usecase.NewPermissionUsecase(permissionRepo)
-	rolePermissionUsecase := usecase.NewRolePermissionUseCase(dbProvider, rolePermissionRepo)
-	auditUsecase := usecase.NewAuditLogUsecase(auditRepo, dbProvider)
-	parkingUsecase := usecase.NewParkingUsecase(parkingRepo)
-	sqlUsecase := usecase.NewSqlUsecase(sqlRepo)
-	imUsecase := usecase.NewIMUsecase(imRepo, dbProvider)
-	ocsUsecase := usecase.NewOCSUsecase(ocsClient, customerRepo)
-	vehicleUsecase := usecase.NewVehicleUsecase(vehicleRepo, imRepo, ocsUsecase, dbProvider)
-	customerUsecase := usecase.NewCustomerUsecase(customerRepo, crmClient)
+	authorizationUsecase := usecase.NewAuthorizationUsecase(authorizationRepo, roleRepo, userRepo, environmentRepo)
+	environmentUsecase := usecase.NewEnvironmentUsecase(environmentRepo)
+	_ = authorizationUsecase
+	_ = environmentUsecase
+	auditUsecase := usecase.NewAuditUsecase(auditRepo)
 	systemSettingUsecase := usecase.NewSystemSettingUsecase(systemSettingRepo)
 	featureFlagUsecase := usecase.NewFeatureFlagUsecase(featureFlagRepo)
-	operatorUsecase := usecase.NewOperatorUsecase(sqlRepo)
+	userSettingsUsecase := usecase.NewUserSettingsUsecase(userSettingsRepo)
+	documentUsecase := usecase.NewDocumentUsecase(documentRepo, storage)
+	emailUsecase := usecase.NewEmailUsecase(emailRepo)
+	notificationUsecase := usecase.NewNotificationUsecase(
+		notificationRepo,
+		notificationTemplateRepo,
+		notificationPrefRepo,
+		userRepo,
+		emailUsecase,
+		nil, // WebSocket hub - will be initialized later if needed
+		nil, // Logger - will be initialized later if needed
+	)
+	licenseUsecase := usecase.NewLicenseUsecase(licenseRepo)
+	imageUsecase := usecase.NewImageUsecase(imageRepo, cfg.Storage.ImagePath)
+
+	// Tunnel Manager
+	tunnelManager := ssh.NewTunnelManager()
+
+	// Infrastructure Usecases
+	serverUsecase := usecase.NewServerUsecase(serverRepo, tunnelManager)
+	dockerUsecase := usecase.NewDockerUsecase(dockerRepo)
+	kubernetesUsecase := usecase.NewKubernetesUsecase(k8sRepo)
+	harborUsecase := usecase.NewHarborUsecase(harborRepo)
+	k8sBackupUsecase := usecase.NewK8sBackupUsecase(k8sBackupRepo, k8sRepo)
+	imageDeploymentUsecase := usecase.NewImageDeploymentUsecase(imageDeploymentRepo, kubernetesUsecase)
+
+	// Docker Client
+	dockerClient, err := docker.NewClient("unix:///var/run/docker.sock")
+	if err != nil {
+		log.Printf("⚠️  Warning: Failed to create Docker client: %v", err)
+		// Continue without Docker support
+	}
+	if dockerClient != nil {
+		defer dockerClient.Close()
+	}
+
+	// Docker Exec & Stats Usecases
+	var dockerExecUsecase usecase.DockerExecUsecase
+	var dockerStatsUsecase usecase.DockerStatsUsecase
+	var dockerNetworkUsecase usecase.DockerNetworkUsecase
+	var dockerImageUsecase usecase.DockerImageUsecase
+	var logUsecase usecase.LogUsecase
+	var eventUsecase usecase.EventUsecase
+	var alertUsecase usecase.AlertUsecase
+	if dockerClient != nil {
+		dockerExecUsecase = usecase.NewDockerExecUsecase(dockerClient)
+		dockerStatsUsecase = usecase.NewDockerStatsUsecase(dockerClient)
+		dockerNetworkUsecase = usecase.NewDockerNetworkUsecase(dockerClient)
+		dockerImageUsecase = usecase.NewDockerImageUsecase(dockerClient)
+		logUsecase = usecase.NewLogUsecase(dockerClient)
+		eventUsecase = usecase.NewEventUsecase(dockerClient)
+		alertUsecase = usecase.NewAlertUsecase(dockerClient, notificationUsecase)
+
+		// Start Alert Monitoring
+		go alertUsecase.StartMonitoring(context.Background())
+	}
+
+	// Docker Stack & File Browser Usecases
+	dockerStackUsecase := usecase.NewDockerStackUsecase(dockerStackRepo)
+	fileBrowserUsecase := usecase.NewFileBrowserUsecase()
+
+	// Server Feature Usecases (with tunnel support)
+	serverUsecase = usecase.NewServerUsecase(serverRepo, tunnelManager)
+	serverBackupUsecase := usecase.NewServerBackupUsecase(serverBackupRepo, serverRepo)
+	serverServiceUsecase := usecase.NewServerServiceUsecase(serverServiceRepo, serverRepo)
+	serverCronjobUsecase := usecase.NewServerCronjobUsecase(serverCronjobRepo, serverRepo)
+	serverNetworkUsecase := usecase.NewServerNetworkUsecase(serverNetworkRepo, serverRepo)
+	serverIPTableUsecase := usecase.NewServerIPTableUsecase(serverIPTableRepo, serverRepo)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authUsecase)
-	userHandler := handler.NewUserHandler(userUsecase, roleUsecase, userRoleUsecase)
+	userHandler := handler.NewUserHandler(userUsecase, roleUsecase)
 	roleHandler := handler.NewRoleHandler(roleUsecase)
 	permissionHandler := handler.NewPermissionHandler(permissionUsecase)
-	userRoleHandler := handler.NewUserRoleHandler(userRoleUsecase)
-	rolePermissionHandler := handler.NewRolePermissionHandler(rolePermissionUsecase)
 	auditHandler := handler.NewAuditHandler(auditUsecase)
-	customerHandler := handler.NewCustomerHandler(parkingUsecase, customerUsecase)
-	imHandler := handler.NewIMHandler(imUsecase)
-	vehicleHandler := handler.NewVehicleHandler(vehicleUsecase, limiter)
-	ocsHandler := handler.NewOCSHandler(ocsUsecase)
-	operatorHandler := handler.NewOperatorHandler(operatorUsecase)
 	systemSettingHandler := handler.NewSystemSettingHandler(systemSettingUsecase)
 	featureFlagHandler := handler.NewFeatureFlagHandler(featureFlagUsecase)
-	sqlHandler := handler.NewSqlHandler(sqlUsecase)
+	userSettingsHandler := handler.NewUserSettingsHandler(userSettingsUsecase)
+	documentHandler := handler.NewDocumentHandler(documentUsecase)
+	pingHandler := handler.NewPingHandler(auditUsecase)
+	emailHandler := handler.NewEmailHandler(emailUsecase)
+	notificationHandler := handler.NewNotificationHandler(notificationUsecase, nil)
+	licenseHandler := handler.NewLicenseHandler(licenseUsecase)
+	websocketHandler := handler.NewWebSocketHandler(nil, cfg, jwtService)
+	environmentHandler := handler.NewEnvironmentHandler(environmentUsecase)
+	authorizationHandler := handler.NewAuthorizationHandler(authorizationUsecase)
+	imageHandler := handler.NewImageHandler(imageUsecase)
+	healthHandler := handler.NewHealthHandler()
+
+	// Infrastructure Handlers
+	serverHandler := handler.NewServerHandler(
+		serverUsecase,
+		serverBackupUsecase,
+		serverServiceUsecase,
+		serverCronjobUsecase,
+		serverNetworkUsecase,
+		serverIPTableUsecase,
+	)
+	dockerHandler := handler.NewDockerHandler(dockerUsecase)
+	kubernetesHandler := handler.NewKubernetesHandler(kubernetesUsecase, k8sBackupUsecase)
+	harborHandler := handler.NewHarborHandler(harborUsecase, imageDeploymentUsecase)
+
+	// Docker Exec & Stats Handlers
+	var dockerExecHandler *handler.DockerExecHandler
+	var dockerStatsHandler *handler.DockerStatsHandler
+	var dockerNetworkHandler *handler.DockerNetworkHandler
+	var dockerImageHandler *handler.DockerImageHandler
+	var logHandler *handler.LogHandler
+	var eventHandler *handler.EventHandler
+	if dockerExecUsecase != nil {
+		dockerExecHandler = handler.NewDockerExecHandler(dockerExecUsecase)
+		dockerStatsHandler = handler.NewDockerStatsHandler(dockerStatsUsecase)
+		dockerNetworkHandler = handler.NewDockerNetworkHandler(dockerNetworkUsecase)
+		dockerImageHandler = handler.NewDockerImageHandler(dockerImageUsecase)
+		logHandler = handler.NewLogHandler(logUsecase)
+		eventHandler = handler.NewEventHandler(eventUsecase)
+	}
+
+	// Docker Stack & File Browser Handlers
+	dockerStackHandler := handler.NewDockerStackHandler(dockerStackUsecase)
+	fileBrowserHandler := handler.NewFileBrowserHandler(fileBrowserUsecase)
+
+	// Tunnel & Kubeconfig Handlers
+	tunnelHandler := handler.NewTunnelHandler(tunnelManager)
+	kubeconfigHandler := handler.NewKubeconfigHandler()
 
 	r := router.InitRouter(cfg,
-		customerHandler,
-		ocsHandler,
 		authHandler,
 		userHandler,
 		roleHandler,
 		permissionHandler,
-		userRoleHandler,
-		rolePermissionHandler,
 		auditHandler,
-		sqlHandler,
 		auditUsecase,
-		imHandler,
-		vehicleHandler,
-		operatorHandler,
+		documentHandler,
 		systemSettingHandler,
 		featureFlagHandler,
+		userSettingsHandler,
+		serverHandler,
+		dockerHandler,
+		dockerExecHandler,
+		dockerStatsHandler,
+		dockerStackHandler,
+		dockerNetworkHandler,
+		dockerImageHandler,
+		fileBrowserHandler,
+		logHandler,
+		eventHandler,
+		kubernetesHandler,
+		harborHandler,
+		pingHandler,
+		emailHandler,
+		notificationHandler,
+		licenseHandler,
+		websocketHandler,
+		environmentHandler,
+		authorizationHandler,
+		imageHandler,
+		healthHandler,
+		tunnelHandler,
+		kubeconfigHandler,
 	)
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// Custom HTTP server with timeout
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:      r,
@@ -134,17 +306,9 @@ func main() {
 	log.Printf("📖 Swagger: http://localhost:%d/swagger/index.html", cfg.Server.Port)
 	log.Println("✅ Server is ready!")
 
-	// Start server
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Failed to start server: %v", err)
-		}
-	}()
-
-	// Limiter cleanup
-	go func() {
-		for range time.Tick(time.Minute * 10) {
-			limiter.Cleanup()
 		}
 	}()
 

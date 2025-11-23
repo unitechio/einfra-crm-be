@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/unitechio/einfra-be/internal/auth"
 	"github.com/unitechio/einfra-be/internal/domain"
 	"github.com/unitechio/einfra-be/internal/repository"
 	"github.com/xuri/excelize/v2"
@@ -24,16 +26,22 @@ type UserUsecase interface {
 
 type userUsecase struct {
 	userRepo repository.UserRepository
+	roleRepo repository.RoleRepository
 	authRepo repository.AuthRepository
+	jwt      *auth.JWTService
 }
 
 func NewUserUsecase(
 	userRepo repository.UserRepository,
+	roleRepo repository.RoleRepository,
 	authRepo repository.AuthRepository,
+	jwt *auth.JWTService,
 ) UserUsecase {
 	return &userUsecase{
 		userRepo: userRepo,
+		roleRepo: roleRepo,
 		authRepo: authRepo,
+		jwt:      jwt,
 	}
 }
 
@@ -48,13 +56,26 @@ func (u *userUsecase) CreateUser(ctx context.Context, user *domain.User, passwor
 		return fmt.Errorf("user with this username already exists")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(password)
+	hashedPassword, err := u.jwt.HashPassword(password)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	user.Password = hashedPassword
 	user.IsActive = true
+	user.CreatedAt = time.Now()
+	user.UpdatedAt = time.Now()
+
+	// Assign default role if not provided
+	if user.RoleID == "" {
+		// TODO: Define a default role or handle this case
+		// For now, we assume the caller might set it or we leave it empty (if allowed)
+	} else {
+		// Validate role
+		if _, err := u.roleRepo.GetByID(ctx, user.RoleID); err != nil {
+			return fmt.Errorf("invalid role id: %w", err)
+		}
+	}
 
 	if err := u.userRepo.Create(ctx, user); err != nil {
 		return err
@@ -90,6 +111,13 @@ func (u *userUsecase) UpdateUser(ctx context.Context, user *domain.User) error {
 		}
 	}
 
+	if user.RoleID != "" && user.RoleID != existingUser.RoleID {
+		if _, err := u.roleRepo.GetByID(ctx, user.RoleID); err != nil {
+			return fmt.Errorf("invalid role id: %w", err)
+		}
+	}
+
+	user.UpdatedAt = time.Now()
 	if err := u.userRepo.Update(ctx, user); err != nil {
 		return err
 	}
@@ -116,11 +144,11 @@ func (u *userUsecase) ChangePassword(ctx context.Context, userID, oldPassword, n
 		return fmt.Errorf("user not found")
 	}
 
-	if err := u.authRepo.ComparePassword(user.Password, oldPassword); err != nil {
+	if err := u.jwt.CheckPassword(user.Password, oldPassword); err != nil {
 		return fmt.Errorf("invalid old password")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(newPassword)
+	hashedPassword, err := u.jwt.HashPassword(newPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -138,7 +166,7 @@ func (u *userUsecase) ResetPassword(ctx context.Context, userID, newPassword str
 		return fmt.Errorf("user not found")
 	}
 
-	hashedPassword, err := u.authRepo.HashPassword(newPassword)
+	hashedPassword, err := u.jwt.HashPassword(newPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -176,7 +204,7 @@ func (u *userUsecase) ImportUsersFromExcel(ctx context.Context, filePath string)
 			continue
 		}
 
-		hashedPassword, _ := u.authRepo.HashPassword(row[3])
+		hashedPassword, _ := u.jwt.HashPassword(row[3])
 
 		user := &domain.User{
 			Username:  row[0],
@@ -184,6 +212,8 @@ func (u *userUsecase) ImportUsersFromExcel(ctx context.Context, filePath string)
 			FirstName: row[2],
 			Password:  hashedPassword,
 			IsActive:  true,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
 
 		users = append(users, user)

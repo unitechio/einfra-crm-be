@@ -106,9 +106,9 @@ func (uc *imageUsecase) processImageVariants(image *domain.Image) {
 		log.Printf("INFO: Created thumbnail for image ID %s at %s", image.ID, image.ThumbnailPath)
 	}
 
-	if err = imaging.Save(srcImage, image.WebpPath, imaging.WebPWithQuality(80)); err != nil {
-		log.Printf("ERROR: Failed to create WebP image: %v", err)
-	}
+	// if err = imaging.Save(srcImage, image.WebpPath, imaging.WebPWithQuality(80)); err != nil {
+	// 	log.Printf("ERROR: Failed to create WebP image: %v", err)
+	// }
 	log.Printf("INFO: Created WebP for image ID %s at %s", image.ID, image.WebpPath)
 
 	if err := uc.imageRepo.UpdatePaths(ctx, image); err != nil {

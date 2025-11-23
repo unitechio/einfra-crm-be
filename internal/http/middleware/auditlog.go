@@ -5,8 +5,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/unitechio/einfra-be/internal/domain"
 	"github.com/gin-gonic/gin"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/usecase"
 )
 
 // responseWriter wraps gin.ResponseWriter to capture response body
@@ -21,7 +22,7 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 }
 
 // AuditLogMiddleware logs all requests to the audit log
-func AuditLogMiddleware(auditUsecase domain.AuditUsecase) gin.HandlerFunc {
+func AuditLogMiddleware(auditUsecase usecase.AuditUsecase) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Record start time
 		startTime := time.Now()
@@ -96,7 +97,7 @@ func AuditLogMiddleware(auditUsecase domain.AuditUsecase) gin.HandlerFunc {
 }
 
 // AuditLogMiddlewareWithFilter logs requests with custom filtering
-func AuditLogMiddlewareWithFilter(auditUsecase domain.AuditUsecase, shouldLog func(*gin.Context) bool) gin.HandlerFunc {
+func AuditLogMiddlewareWithFilter(auditUsecase usecase.AuditUsecase, shouldLog func(*gin.Context) bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !shouldLog(c) {
 			c.Next()

@@ -41,6 +41,14 @@ type AuthCredentials struct {
 	Password string `json:"password" validate:"required" example:"SecurePass123!"`
 }
 
+type RegisterRequest struct {
+	Name     string `json:"name" binding:"required,min=3,max=50"`
+	Username string `json:"username" binding:"required,min=3,max=50"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=6"`
+	RoleID   int    `json:"role_id" `
+}
+
 // AuthResponse represents the authentication response
 // @Description Authentication response with tokens and user info
 type AuthResponse struct {
@@ -98,20 +106,6 @@ type OAuthState struct {
 	Provider  AuthProvider `json:"provider"`
 	CreatedAt time.Time    `json:"created_at"`
 	ExpiresAt time.Time    `json:"expires_at"`
-}
-
-// OAuthUserInfo represents user information from OAuth provider
-type OAuthUserInfo struct {
-	Provider     AuthProvider `json:"provider"`
-	ProviderID   string       `json:"provider_id"`
-	Email        string       `json:"email"`
-	Name         string       `json:"name"`
-	FirstName    string       `json:"first_name"`
-	LastName     string       `json:"last_name"`
-	Avatar       string       `json:"avatar"`
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-	ExpiresAt    time.Time    `json:"expires_at"`
 }
 
 // Session represents a user session

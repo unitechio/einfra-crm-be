@@ -31,6 +31,14 @@ func (r *FeatureFlagRepository) GetByName(name string) (*domain.FeatureFlag, err
 	return &flag, nil
 }
 
+func (r *FeatureFlagRepository) GetByKey(key string) (*domain.FeatureFlag, error) {
+	var flag domain.FeatureFlag
+	if err := r.DB.Where("key = ?", key).First(&flag).Error; err != nil {
+		return nil, err
+	}
+	return &flag, nil
+}
+
 func (r *FeatureFlagRepository) GetAll() ([]*domain.FeatureFlag, error) {
 	var flags []*domain.FeatureFlag
 	if err := r.DB.Find(&flags).Error; err != nil {
@@ -42,6 +50,38 @@ func (r *FeatureFlagRepository) GetAll() ([]*domain.FeatureFlag, error) {
 func (r *FeatureFlagRepository) GetByCategory(category string) ([]*domain.FeatureFlag, error) {
 	var flags []*domain.FeatureFlag
 	if err := r.DB.Where("category = ?", category).Find(&flags).Error; err != nil {
+		return nil, err
+	}
+	return flags, nil
+}
+
+// GetByTier retrieves all features available for a specific license tier
+func (r *FeatureFlagRepository) GetByTier(tier domain.LicenseTier) ([]*domain.FeatureFlag, error) {
+	var flags []*domain.FeatureFlag
+
+	// Tier hierarchy: Free < Pro < Enterprise < Custom
+	tierOrder := map[domain.LicenseTier]int{
+		domain.TierFree:       1,
+		domain.TierPro:        2,
+		domain.TierEnterprise: 3,
+		domain.TierCustom:     4,
+	}
+
+	currentTierLevel := tierOrder[tier]
+
+	// Get all features where required_tier <= current tier
+	query := r.DB.Where("enabled = ?", true)
+
+	var validTiers []string
+	for t, level := range tierOrder {
+		if level <= currentTierLevel {
+			validTiers = append(validTiers, string(t))
+		}
+	}
+
+	query = query.Where("required_tier IN ?", validTiers)
+
+	if err := query.Find(&flags).Error; err != nil {
 		return nil, err
 	}
 	return flags, nil

@@ -6,29 +6,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/usecase"
 )
 
-// PingHandler is a simple handler for health checks that also demonstrates auditing.
 type PingHandler struct {
-	auditService domain.AuditService
+	auditService usecase.AuditUsecase
 }
 
-// NewPingHandler creates a new handler with its dependencies.
-func NewPingHandler(as domain.AuditService) *PingHandler {
+func NewPingHandler(as usecase.AuditUsecase) *PingHandler {
 	return &PingHandler{auditService: as}
 }
 
-// Ping is a simple endpoint that responds with pong and logs an audit event.
 func (h *PingHandler) Ping(c *gin.Context) {
-    // For public endpoints, user info might not be available.
-    // The audit service is designed to handle this gracefully.
-	auditEntry := domain.AuditEntry{
-		Action:     domain.ActionRead,
-		TargetType: "SystemHealth",
-		Details:    "Ping-pong health check was performed",
+	auditEntry := domain.AuditLog{
+		Action:      domain.AuditActionRead,
+		Resource:    "SystemHealth",
+		Description: "Ping-pong health check was performed",
 	}
 
-	 if _, err := h.auditService.Log(c, auditEntry); err != nil {
+	if err := h.auditService.Log(c.Request.Context(), &auditEntry); err != nil {
 		log.Printf("Failed to write audit log for ping: %v", err)
 	}
 

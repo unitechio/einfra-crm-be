@@ -1,16 +1,15 @@
-
 package handler
 
 import (
-	"github.com/unitechio/einfra-be/internal/domain"
-	"github.com/unitechio/einfra-be/internal/errorx"
-	"github.com/unitechio/einfra-be/internal/logger"
-	"github.com/unitechio/einfra-be/internal/usecase"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/internal/logger"
+	"github.com/unitechio/einfra-be/internal/usecase"
+	"github.com/unitechio/einfra-be/pkg/errorx"
 )
 
 // NotificationHandler handles notification API requests.
@@ -26,26 +25,50 @@ func NewNotificationHandler(uc usecase.NotificationUsecase, log logger.Logger) *
 
 // createNotificationRequest represents the request body for creating a notification.
 type createNotificationRequest struct {
-	Message string `json:"message" binding:"required"`
+	UserID   string                      `json:"user_id" binding:"required"`
+	Type     domain.NotificationType     `json:"type" binding:"required"`
+	Channel  domain.NotificationChannel  `json:"channel" binding:"required"`
+	Priority domain.NotificationPriority `json:"priority" binding:"required"`
+	Title    string                      `json:"title" binding:"required"`
+	Message  string                      `json:"message" binding:"required"`
 }
 
-// GetAll godoc
-// @Summary Get all notifications
-// @Description Get all notifications
+// GetUserNotifications godoc
+// @Summary Get user notifications
+// @Description Get notifications for a specific user with filtering
 // @Tags notifications
 // @Produce json
-// @Success 200 {array} domain.Notification
-// @Router /notifications [get]
-func (h *NotificationHandler) GetAll(c *gin.Context) {
-	h.log.Info(c.Request.Context(), "GetAll request received")
-	notifications, err := h.uc.GetAll()
-	if err != nil {
-		h.log.Error(c.Request.Context(), "Failed to get notifications", logger.LogField{Key: "error", Value: err})
-		c.Error(errorx.New(http.StatusInternalServerError, "Failed to get notifications").WithStack())
+// @Param user_id path string true "User ID"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param type query string false "Notification type"
+// @Param channel query string false "Notification channel"
+// @Param is_read query boolean false "Is read status"
+// @Success 200 {object} gin.H
+// @Failure 400 {object} gin.H
+// @Failure 500 {object} gin.H
+// @Router /users/{user_id}/notifications [get]
+func (h *NotificationHandler) GetUserNotifications(c *gin.Context) {
+	userID := c.Param("user_id")
+	var filter domain.NotificationFilter
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		h.log.Error(c.Request.Context(), "Invalid query parameters", logger.LogField{Key: "error", Value: err})
+		c.Error(errorx.New(http.StatusBadRequest, "Invalid query parameters"))
 		return
 	}
-	h.log.Info(c.Request.Context(), "GetAll request successful")
-	c.JSON(http.StatusOK, notifications)
+
+	notifications, total, err := h.uc.GetUserNotifications(c.Request.Context(), userID, filter)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "Failed to get user notifications", logger.LogField{Key: "user_id", Value: userID}, logger.LogField{Key: "error", Value: err})
+		c.Error(errorx.New(http.StatusInternalServerError, "Failed to get user notifications").WithStack())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":  notifications,
+		"total": total,
+		"page":  filter.Page,
+	})
 }
 
 // GetByID godoc
@@ -59,32 +82,28 @@ func (h *NotificationHandler) GetAll(c *gin.Context) {
 // @Router /notifications/{id} [get]
 func (h *NotificationHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
-	h.log.Info(c.Request.Context(), "GetByID request received", logger.LogField{Key: "id", Value: id})
-	notification, err := h.uc.GetByID(id)
+	notification, err := h.uc.GetNotification(c.Request.Context(), id)
 	if err != nil {
 		h.log.Error(c.Request.Context(), "Notification not found", logger.LogField{Key: "id", Value: id}, logger.LogField{Key: "error", Value: err})
 		c.Error(errorx.New(http.StatusNotFound, "Notification not found"))
 		return
 	}
-	h.log.Info(c.Request.Context(), "GetByID request successful", logger.LogField{Key: "id", Value: id})
 	c.JSON(http.StatusOK, notification)
 }
 
 // Create godoc
 // @Summary Create a new notification
-// @Description Create a new notification
+// @Description Create a new notification manually
 // @Tags notifications
 // @Accept json
 // @Produce json
-// @Param notification body createNotificationRequest true "Notification message"
+// @Param notification body createNotificationRequest true "Notification details"
 // @Success 201 {object} domain.Notification
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /notifications [post]
 func (h *NotificationHandler) Create(c *gin.Context) {
-	h.log.Info(c.Request.Context(), "Create request received")
 	var req createNotificationRequest
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.log.Error(c.Request.Context(), "Invalid request body", logger.LogField{Key: "error", Value: err})
 		c.Error(errorx.New(http.StatusBadRequest, "Invalid request body"))
@@ -93,18 +112,23 @@ func (h *NotificationHandler) Create(c *gin.Context) {
 
 	notification := &domain.Notification{
 		ID:        uuid.New().String(),
+		UserID:    req.UserID,
+		Type:      req.Type,
+		Channel:   req.Channel,
+		Priority:  req.Priority,
+		Title:     req.Title,
 		Message:   req.Message,
 		CreatedAt: time.Now(),
-		Read:      false,
+		IsRead:    false,
+		IsSent:    false,
 	}
 
-	if err := h.uc.Create(c.Request.Context(), notification); err != nil {
+	if err := h.uc.SendNotification(c.Request.Context(), notification); err != nil {
 		h.log.Error(c.Request.Context(), "Failed to create notification", logger.LogField{Key: "error", Value: err})
 		c.Error(errorx.New(http.StatusInternalServerError, "Failed to create notification").WithStack())
 		return
 	}
 
-	h.log.Info(c.Request.Context(), "Create request successful", logger.LogField{Key: "notification_id", Value: notification.ID})
 	c.JSON(http.StatusCreated, notification)
 }
 
@@ -119,36 +143,51 @@ func (h *NotificationHandler) Create(c *gin.Context) {
 // @Router /notifications/{id}/read [put]
 func (h *NotificationHandler) MarkAsRead(c *gin.Context) {
 	id := c.Param("id")
-	h.log.Info(c.Request.Context(), "MarkAsRead request received", logger.LogField{Key: "id", Value: id})
-
-	if err := h.uc.MarkAsRead(id); err != nil {
+	if err := h.uc.MarkAsRead(c.Request.Context(), id); err != nil {
 		h.log.Error(c.Request.Context(), "Failed to mark notification as read", logger.LogField{Key: "id", Value: id}, logger.LogField{Key: "error", Value: err})
 		c.Error(errorx.New(http.StatusInternalServerError, "Failed to mark notification as read").WithStack())
 		return
 	}
-
-	h.log.Info(c.Request.Context(), "MarkAsRead request successful", logger.LogField{Key: "id", Value: id})
 	c.JSON(http.StatusOK, gin.H{"message": "Notification marked as read"})
 }
 
-// GetUnread godoc
-// @Summary Get unread notifications
-// @Description Get all unread notifications
+// MarkAllAsRead godoc
+// @Summary Mark all notifications as read
+// @Description Mark all notifications as read for a user
 // @Tags notifications
 // @Produce json
-// @Success 200 {array} domain.Notification
+// @Param user_id path string true "User ID"
+// @Success 200 {object} gin.H
 // @Failure 500 {object} gin.H
-// @Router /notifications/unread [get]
-func (h *NotificationHandler) GetUnread(c *gin.Context) {
-	h.log.Info(c.Request.Context(), "GetUnread request received")
-	notifications, err := h.uc.GetUnread()
-	if err != nil {
-		h.log.Error(c.Request.Context(), "Failed to get unread notifications", logger.LogField{Key: "error", Value: err})
-		c.Error(errorx.New(http.StatusInternalServerError, "Failed to get unread notifications").WithStack())
+// @Router /users/{user_id}/notifications/read-all [put]
+func (h *NotificationHandler) MarkAllAsRead(c *gin.Context) {
+	userID := c.Param("user_id")
+	if err := h.uc.MarkAllAsRead(c.Request.Context(), userID); err != nil {
+		h.log.Error(c.Request.Context(), "Failed to mark all notifications as read", logger.LogField{Key: "user_id", Value: userID}, logger.LogField{Key: "error", Value: err})
+		c.Error(errorx.New(http.StatusInternalServerError, "Failed to mark all notifications as read").WithStack())
 		return
 	}
-	h.log.Info(c.Request.Context(), "GetUnread request successful")
-	c.JSON(http.StatusOK, notifications)
+	c.JSON(http.StatusOK, gin.H{"message": "All notifications marked as read"})
+}
+
+// GetUnreadCount godoc
+// @Summary Get unread notification count
+// @Description Get the count of unread notifications for a user
+// @Tags notifications
+// @Produce json
+// @Param user_id path string true "User ID"
+// @Success 200 {object} gin.H
+// @Failure 500 {object} gin.H
+// @Router /users/{user_id}/notifications/unread-count [get]
+func (h *NotificationHandler) GetUnreadCount(c *gin.Context) {
+	userID := c.Param("user_id")
+	count, err := h.uc.GetUnreadCount(c.Request.Context(), userID)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "Failed to get unread count", logger.LogField{Key: "user_id", Value: userID}, logger.LogField{Key: "error", Value: err})
+		c.Error(errorx.New(http.StatusInternalServerError, "Failed to get unread count").WithStack())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
 // Delete godoc
@@ -162,14 +201,10 @@ func (h *NotificationHandler) GetUnread(c *gin.Context) {
 // @Router /notifications/{id} [delete]
 func (h *NotificationHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	h.log.Info(c.Request.Context(), "Delete request received", logger.LogField{Key: "id", Value: id})
-
-	if err := h.uc.Delete(id); err != nil {
+	if err := h.uc.DeleteNotification(c.Request.Context(), id); err != nil {
 		h.log.Error(c.Request.Context(), "Failed to delete notification", logger.LogField{Key: "id", Value: id}, logger.LogField{Key: "error", Value: err})
 		c.Error(errorx.New(http.StatusInternalServerError, "Failed to delete notification").WithStack())
 		return
 	}
-
-	h.log.Info(c.Request.Context(), "Delete request successful", logger.LogField{Key: "id", Value: id})
 	c.JSON(http.StatusOK, gin.H{"message": "Notification deleted"})
 }

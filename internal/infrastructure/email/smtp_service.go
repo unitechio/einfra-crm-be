@@ -1,94 +1,272 @@
-
 package email
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"html/template"
-	"os"
-	"path/filepath"
+	"time"
 
 	"github.com/jaytaylor/html2text"
-	"gopkg.in/gomail.v2"
 	"github.com/unitechio/einfra-be/internal/config"
 	"github.com/unitechio/einfra-be/internal/domain"
+	"github.com/unitechio/einfra-be/pkg/email"
+	"gopkg.in/gomail.v2"
 )
 
-// smtpService implements the domain.EmailService interface using an SMTP server.
-type smtpService struct {
-	dialer   *gomail.Dialer
-	from     string
-	templates *template.Template
+// SMTPService handles email sending via SMTP
+type SMTPService struct {
+	dialer           *gomail.Dialer
+	from             string
+	templateRenderer *email.TemplateRenderer
 }
 
-// NewSmtpService creates a new SMTP email service.
-func NewSmtpService(cfg *config.SMTPConfig) (domain.EmailService, error) {
-	d := gomail.NewDialer(cfg.Host, cfg.Port, cfg.Username, cfg.Password)
+// NewSMTPService creates a new SMTP email service
+func NewSMTPService(cfg *config.SmtpConfig) (*SMTPService, error) {
+	d := gomail.NewDialer(cfg.Host, cfg.Port, cfg.UserName, cfg.Password)
 
-	templates, err := parseTemplates("internal/templates/emails")
+	// Initialize template renderer
+	renderer, err := email.NewTemplateRenderer(email.TemplateConfig{
+		TemplateDir:  "./templates/email",
+		CacheEnabled: true,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse email templates: %w", err)
+		return nil, fmt.Errorf("failed to initialize template renderer: %w", err)
 	}
 
-	return &smtpService{
-		dialer:   d,
-		from:     cfg.From,
-		templates: templates,
+	return &SMTPService{
+		dialer:           d,
+		from:             cfg.From,
+		templateRenderer: renderer,
 	}, nil
 }
 
-// SendEmail sends an email using the configured SMTP server.
-func (s *smtpService) SendEmail(ctx context.Context, emailData domain.EmailData) error {
-	// Render the HTML body from the template.
-	htmlBody, err := s.renderTemplate(emailData.Template, emailData.Data)
-	if err != nil {
-		return fmt.Errorf("failed to render email template: %w", err)
-	}
-
-	// Generate a plain text version of the HTML.
-	plainTextBody, err := html2text.FromString(htmlBody)
-	if err != nil {
-		return fmt.Errorf("failed to convert HTML to plain text: %w", err)
-	}
-
-	// Compose the email.
+// SendEmail sends a plain text email
+func (s *SMTPService) SendEmail(ctx context.Context, to []string, subject, body string) error {
 	m := gomail.NewMessage()
 	m.SetHeader("From", s.from)
-	m.SetHeader("To", emailData.To...)
-	m.SetHeader("Subject", emailData.Subject)
-	m.SetBody("text/plain", plainTextBody)
-	m.AddAlternative("text/html", htmlBody)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
 
-	// Send the email.
 	return s.dialer.DialAndSend(m)
 }
 
-// renderTemplate executes a template with the given data.
-func (s *smtpService) renderTemplate(templateName string, data interface{}) (string, error) {
-	var tpl bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&tpl, templateName, data); err != nil {
-		return "", err
+// SendHTMLEmail sends an HTML email
+func (s *SMTPService) SendHTMLEmail(ctx context.Context, to []string, subject, htmlBody string) error {
+	// Generate plain text version
+	plainText, err := html2text.FromString(htmlBody)
+	if err != nil {
+		plainText = htmlBody // Fallback to HTML if conversion fails
 	}
-	return tpl.String(), nil
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", plainText)
+	m.AddAlternative("text/html", htmlBody)
+
+	return s.dialer.DialAndSend(m)
 }
 
-// parseTemplates loads and parses all HTML templates from a directory.
-func parseTemplates(dir string) (*template.Template, error) {
-	t := template.New("")
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && filepath.Ext(path) == ".html" {
-			_, err := t.ParseFiles(path)
-			return err
-		}
-		return nil
-	})
+// SendEmailWithCC sends an email with CC recipients
+func (s *SMTPService) SendEmailWithCC(ctx context.Context, to, cc []string, subject, body string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Cc", cc...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
 
-	if err != nil {
-		return nil, err
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithBCC sends an email with BCC recipients
+func (s *SMTPService) SendEmailWithBCC(ctx context.Context, to, bcc []string, subject, body string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Bcc", bcc...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithTemplate sends an email using a template
+func (s *SMTPService) SendEmailWithTemplate(ctx context.Context, to []string, templateName string, data interface{}) error {
+	templateData, ok := data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("data must be a map[string]interface{}")
 	}
-	return t, nil
+
+	// Render template
+	htmlBody, err := s.templateRenderer.Render(templateName, templateData)
+	if err != nil {
+		return fmt.Errorf("failed to render template: %w", err)
+	}
+
+	// Extract subject from data
+	subject, _ := templateData["Subject"].(string)
+	if subject == "" {
+		subject = "Email from " + templateName
+	}
+
+	return s.SendHTMLEmail(ctx, to, subject, htmlBody)
+}
+
+// SendTemplateEmailWithCC sends a template email with CC
+func (s *SMTPService) SendTemplateEmailWithCC(ctx context.Context, to, cc []string, templateName string, data interface{}) error {
+	templateData, ok := data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("data must be a map[string]interface{}")
+	}
+
+	htmlBody, err := s.templateRenderer.Render(templateName, templateData)
+	if err != nil {
+		return fmt.Errorf("failed to render template: %w", err)
+	}
+
+	subject, _ := templateData["Subject"].(string)
+	if subject == "" {
+		subject = "Email from " + templateName
+	}
+
+	plainText, _ := html2text.FromString(htmlBody)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Cc", cc...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", plainText)
+	m.AddAlternative("text/html", htmlBody)
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithAttachment sends an email with attachments
+func (s *SMTPService) SendEmailWithAttachment(ctx context.Context, to []string, subject, body string, attachments []domain.EmailAttachment) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
+
+	// Add attachments
+	for _, att := range attachments {
+		if att.Inline {
+			m.Embed(att.Filename)
+		} else {
+			m.Attach(att.Filename)
+		}
+	}
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithInlineImage sends an email with inline images
+func (s *SMTPService) SendEmailWithInlineImage(ctx context.Context, to []string, subject, htmlBody string, images []domain.EmailAttachment) error {
+	plainText, _ := html2text.FromString(htmlBody)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", plainText)
+	m.AddAlternative("text/html", htmlBody)
+
+	// Embed images
+	for _, img := range images {
+		m.Embed(img.Filename)
+	}
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendBulkEmail sends multiple emails
+func (s *SMTPService) SendBulkEmail(ctx context.Context, emails []domain.EmailData) error {
+	for _, emailData := range emails {
+		if err := s.sendEmailData(ctx, emailData); err != nil {
+			return fmt.Errorf("failed to send email to %v: %w", emailData.To, err)
+		}
+	}
+	return nil
+}
+
+// SendBulkTemplateEmail sends bulk emails using a template
+func (s *SMTPService) SendBulkTemplateEmail(ctx context.Context, recipients []string, templateName string, data interface{}) error {
+	for _, recipient := range recipients {
+		if err := s.SendEmailWithTemplate(ctx, []string{recipient}, templateName, data); err != nil {
+			return fmt.Errorf("failed to send email to %s: %w", recipient, err)
+		}
+	}
+	return nil
+}
+
+// SendPriorityEmail sends an email with priority
+func (s *SMTPService) SendPriorityEmail(ctx context.Context, to []string, subject, body string, priority domain.EmailPriority) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
+
+	// Set priority header
+	switch priority {
+	case domain.EmailPriorityHigh:
+		m.SetHeader("X-Priority", "1")
+		m.SetHeader("Importance", "high")
+	case domain.EmailPriorityLow:
+		m.SetHeader("X-Priority", "5")
+		m.SetHeader("Importance", "low")
+	}
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithReplyTo sends an email with reply-to header
+func (s *SMTPService) SendEmailWithReplyTo(ctx context.Context, to []string, subject, body, replyTo string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Reply-To", replyTo)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
+
+	return s.dialer.DialAndSend(m)
+}
+
+// SendEmailWithHeaders sends an email with custom headers
+func (s *SMTPService) SendEmailWithHeaders(ctx context.Context, to []string, subject, body string, headers map[string]string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
+
+	// Add custom headers
+	for key, value := range headers {
+		m.SetHeader(key, value)
+	}
+
+	return s.dialer.DialAndSend(m)
+}
+
+// ScheduleEmail schedules an email for future sending (placeholder)
+func (s *SMTPService) ScheduleEmail(ctx context.Context, sendAt time.Time, data domain.EmailData) error {
+	// TODO: Implement scheduling logic with a job queue
+	return fmt.Errorf("email scheduling not yet implemented")
+}
+
+// Helper method to send EmailData
+func (s *SMTPService) sendEmailData(ctx context.Context, data domain.EmailData) error {
+	if data.Template != "" {
+		return s.SendEmailWithTemplate(ctx, data.To, data.Template, data.Data)
+	}
+
+	if data.HTMLBody != "" {
+		return s.SendHTMLEmail(ctx, data.To, data.Subject, data.HTMLBody)
+	}
+
+	return s.SendEmail(ctx, data.To, data.Subject, data.Body)
 }

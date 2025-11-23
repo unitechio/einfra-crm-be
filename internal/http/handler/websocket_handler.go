@@ -7,20 +7,23 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/unitechio/einfra-be/internal/auth"
+	"github.com/unitechio/einfra-be/internal/config"
 	"github.com/unitechio/einfra-be/internal/socket"
 )
 
 // WebSocketHandler handles WebSocket connections
 type WebSocketHandler struct {
-	hub        *socket.Hub
-	jwtService auth.JWTService
+	hub *socket.Hub
+	cfg *config.Config
+	jwt *auth.JWTService
 }
 
 // NewWebSocketHandler creates a new WebSocketHandler
-func NewWebSocketHandler(hub *socket.Hub, jwtService auth.JWTService) *WebSocketHandler {
+func NewWebSocketHandler(hub *socket.Hub, cfg *config.Config, jwt *auth.JWTService) *WebSocketHandler {
 	return &WebSocketHandler{
-		hub:        hub,
-		jwtService: jwtService,
+		hub: hub,
+		cfg: cfg,
+		jwt: jwt,
 	}
 }
 
@@ -45,7 +48,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	// Validate token and extract user ID
-	claims, err := h.jwtService.ValidateToken(token)
+	claims, err := h.jwt.ValidateAccessToken(token)
 	if err != nil {
 		log.Printf("WebSocket authentication failed: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{

@@ -1,4 +1,3 @@
-
 package handler
 
 import (
@@ -11,15 +10,14 @@ import (
 
 // FeatureFlagHandler handles HTTP requests related to feature flags.
 type FeatureFlagHandler struct {
-	uc *usecase.FeatureFlagUseCase
+	uc usecase.FeatureFlagUsecase
 }
 
 // NewFeatureFlagHandler creates a new instance of FeatureFlagHandler.
-func NewFeatureFlagHandler(uc *usecase.FeatureFlagUseCase) *FeatureFlagHandler {
+func NewFeatureFlagHandler(uc usecase.FeatureFlagUsecase) *FeatureFlagHandler {
 	return &FeatureFlagHandler{uc: uc}
 }
 
-// CreateFeatureFlag handles the creation of a new feature flag.
 func (h *FeatureFlagHandler) CreateFeatureFlag(c *gin.Context) {
 	var flag domain.FeatureFlag
 	if err := c.ShouldBindJSON(&flag); err != nil {
@@ -59,10 +57,9 @@ func (h *FeatureFlagHandler) GetAllFeatureFlags(c *gin.Context) {
 	c.JSON(http.StatusOK, flags)
 }
 
-
 // GetFeatureFlagsByCategory handles the retrieval of all feature flags of a specific category.
 func (h *FeatureFlagHandler) GetFeatureFlagsByCategory(c *gin.Context) {
-    category := c.Param("category")
+	category := c.Param("category")
 	flags, err := h.uc.GetFeatureFlagsByCategory(category)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -71,7 +68,6 @@ func (h *FeatureFlagHandler) GetFeatureFlagsByCategory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, flags)
 }
-
 
 // UpdateFeatureFlag handles the update of an existing feature flag.
 func (h *FeatureFlagHandler) UpdateFeatureFlag(c *gin.Context) {

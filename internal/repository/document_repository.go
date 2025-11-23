@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type IDocumentRepository interface {
+type DocumentRepository interface {
 	CreateDocument(ctx context.Context, document *domain.Document) error
 	UpdateDocument(ctx context.Context, document *domain.Document) error
 	DeleteDocumentByID(ctx context.Context, id uint) error
@@ -42,32 +42,32 @@ type IDocumentRepository interface {
 	GetDocumentVersions(ctx context.Context, documentID uint) ([]domain.DocumentVersion, error)
 }
 
-type DocumentRepository struct {
+type documentRepository struct {
 	db *gorm.DB
 }
 
-func NewDocumentRepository(db *gorm.DB) IDocumentRepository {
-	return &DocumentRepository{
+func NewDocumentRepository(db *gorm.DB) DocumentRepository {
+	return &documentRepository{
 		db: db,
 	}
 }
 
 // Document CRUD methods
-func (r *DocumentRepository) CreateDocument(ctx context.Context, document *domain.Document) error {
+func (r *documentRepository) CreateDocument(ctx context.Context, document *domain.Document) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
 	return r.db.WithContext(ctx).Create(document).Error
 }
 
-func (r *DocumentRepository) UpdateDocument(ctx context.Context, document *domain.Document) error {
+func (r *documentRepository) UpdateDocument(ctx context.Context, document *domain.Document) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
 	return r.db.WithContext(ctx).Save(document).Error
 }
 
-func (r *DocumentRepository) DeleteDocumentByID(ctx context.Context, id uint) error {
+func (r *documentRepository) DeleteDocumentByID(ctx context.Context, id uint) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -75,7 +75,7 @@ func (r *DocumentRepository) DeleteDocumentByID(ctx context.Context, id uint) er
 	return r.db.WithContext(ctx).Delete(&domain.Document{}, id).Error
 }
 
-func (r *DocumentRepository) GetDocumentByID(ctx context.Context, id uint) (*domain.Document, error) {
+func (r *documentRepository) GetDocumentByID(ctx context.Context, id uint) (*domain.Document, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -95,7 +95,7 @@ func (r *DocumentRepository) GetDocumentByID(ctx context.Context, id uint) (*dom
 	return &document, nil
 }
 
-func (r *DocumentRepository) GetDocumentByCode(ctx context.Context, code string) (*domain.Document, error) {
+func (r *documentRepository) GetDocumentByCode(ctx context.Context, code string) (*domain.Document, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -116,7 +116,7 @@ func (r *DocumentRepository) GetDocumentByCode(ctx context.Context, code string)
 	return &document, nil
 }
 
-func (r *DocumentRepository) GetDocumentByPath(ctx context.Context, path string) (*domain.Document, error) {
+func (r *documentRepository) GetDocumentByPath(ctx context.Context, path string) (*domain.Document, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -134,7 +134,7 @@ func (r *DocumentRepository) GetDocumentByPath(ctx context.Context, path string)
 	return &document, nil
 }
 
-func (r *DocumentRepository) GetDocuments(ctx context.Context, filter dto.DocumentFilter) ([]domain.Document, int, int, error) {
+func (r *documentRepository) GetDocuments(ctx context.Context, filter dto.DocumentFilter) ([]domain.Document, int, int, error) {
 	if r.db == nil {
 		return nil, 0, 0, errors.New("database connection is nil")
 	}
@@ -220,7 +220,7 @@ func (r *DocumentRepository) GetDocuments(ctx context.Context, filter dto.Docume
 	return documents, int(totalCount), totalPages, nil
 }
 
-func (r *DocumentRepository) GetDocumentsByEntityID(ctx context.Context, entityType string, entityID uint) ([]domain.Document, error) {
+func (r *documentRepository) GetDocumentsByEntityID(ctx context.Context, entityType string, entityID uint) ([]domain.Document, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -240,7 +240,7 @@ func (r *DocumentRepository) GetDocumentsByEntityID(ctx context.Context, entityT
 }
 
 // Permission related methods
-func (r *DocumentRepository) CreateDocumentPermission(ctx context.Context, permission *domain.DocumentPermission) error {
+func (r *documentRepository) CreateDocumentPermission(ctx context.Context, permission *domain.DocumentPermission) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -248,7 +248,7 @@ func (r *DocumentRepository) CreateDocumentPermission(ctx context.Context, permi
 	return r.db.WithContext(ctx).Create(permission).Error
 }
 
-func (r *DocumentRepository) UpdateDocumentPermission(ctx context.Context, permission *domain.DocumentPermission) error {
+func (r *documentRepository) UpdateDocumentPermission(ctx context.Context, permission *domain.DocumentPermission) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -256,7 +256,7 @@ func (r *DocumentRepository) UpdateDocumentPermission(ctx context.Context, permi
 	return r.db.WithContext(ctx).Save(permission).Error
 }
 
-func (r *DocumentRepository) DeleteDocumentPermission(ctx context.Context, id uint) error {
+func (r *documentRepository) DeleteDocumentPermission(ctx context.Context, id uint) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -264,7 +264,7 @@ func (r *DocumentRepository) DeleteDocumentPermission(ctx context.Context, id ui
 	return r.db.WithContext(ctx).Delete(&domain.DocumentPermission{}, id).Error
 }
 
-func (r *DocumentRepository) GetDocumentPermissions(ctx context.Context, documentID uint) ([]domain.DocumentPermission, error) {
+func (r *documentRepository) GetDocumentPermissions(ctx context.Context, documentID uint) ([]domain.DocumentPermission, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -284,7 +284,7 @@ func (r *DocumentRepository) GetDocumentPermissions(ctx context.Context, documen
 	return permissions, nil
 }
 
-func (r *DocumentRepository) GetUserDocumentPermission(ctx context.Context, documentID uint, userID uuid.UUID) (*domain.DocumentPermission, error) {
+func (r *documentRepository) GetUserDocumentPermission(ctx context.Context, documentID uint, userID uuid.UUID) (*domain.DocumentPermission, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -338,7 +338,7 @@ func (r *DocumentRepository) GetUserDocumentPermission(ctx context.Context, docu
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (r *DocumentRepository) CheckUserPermission(ctx context.Context, documentID uint, userID uuid.UUID, requiredLevel string) (bool, error) {
+func (r *documentRepository) CheckUserPermission(ctx context.Context, documentID uint, userID uuid.UUID, requiredLevel string) (bool, error) {
 	if r.db == nil {
 		return false, errors.New("database connection is nil")
 	}
@@ -385,7 +385,7 @@ func (r *DocumentRepository) CheckUserPermission(ctx context.Context, documentID
 }
 
 // Comment related methods
-func (r *DocumentRepository) CreateDocumentComment(ctx context.Context, comment *domain.DocumentComment) error {
+func (r *documentRepository) CreateDocumentComment(ctx context.Context, comment *domain.DocumentComment) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -393,7 +393,7 @@ func (r *DocumentRepository) CreateDocumentComment(ctx context.Context, comment 
 	return r.db.WithContext(ctx).Create(comment).Error
 }
 
-func (r *DocumentRepository) UpdateDocumentComment(ctx context.Context, comment *domain.DocumentComment) error {
+func (r *documentRepository) UpdateDocumentComment(ctx context.Context, comment *domain.DocumentComment) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -401,7 +401,7 @@ func (r *DocumentRepository) UpdateDocumentComment(ctx context.Context, comment 
 	return r.db.WithContext(ctx).Save(comment).Error
 }
 
-func (r *DocumentRepository) DeleteDocumentComment(ctx context.Context, id uint) error {
+func (r *documentRepository) DeleteDocumentComment(ctx context.Context, id uint) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -410,7 +410,7 @@ func (r *DocumentRepository) DeleteDocumentComment(ctx context.Context, id uint)
 	return r.db.WithContext(ctx).Delete(&domain.DocumentComment{}, id).Error
 }
 
-func (r *DocumentRepository) GetDocumentComments(ctx context.Context, documentID uint) ([]domain.DocumentComment, error) {
+func (r *documentRepository) GetDocumentComments(ctx context.Context, documentID uint) ([]domain.DocumentComment, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}
@@ -430,7 +430,7 @@ func (r *DocumentRepository) GetDocumentComments(ctx context.Context, documentID
 }
 
 // Version related methods
-func (r *DocumentRepository) CreateDocumentVersion(ctx context.Context, version *domain.DocumentVersion) error {
+func (r *documentRepository) CreateDocumentVersion(ctx context.Context, version *domain.DocumentVersion) error {
 	if r.db == nil {
 		return errors.New("database connection is nil")
 	}
@@ -438,7 +438,7 @@ func (r *DocumentRepository) CreateDocumentVersion(ctx context.Context, version 
 	return r.db.WithContext(ctx).Create(version).Error
 }
 
-func (r *DocumentRepository) GetDocumentVersions(ctx context.Context, documentID uint) ([]domain.DocumentVersion, error) {
+func (r *documentRepository) GetDocumentVersions(ctx context.Context, documentID uint) ([]domain.DocumentVersion, error) {
 	if r.db == nil {
 		return nil, errors.New("database connection is nil")
 	}

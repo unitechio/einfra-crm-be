@@ -19,7 +19,7 @@ type loginAttemptRepository struct {
 	db *gorm.DB
 }
 
-func NewloginAttemptRepository(db *gorm.DB) LoginAttemptRepository {
+func NewLoginAttemptRepository(db *gorm.DB) LoginAttemptRepository {
 	return &loginAttemptRepository{db: db}
 }
 

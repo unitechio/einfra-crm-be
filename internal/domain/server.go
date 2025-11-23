@@ -23,12 +23,26 @@ const (
 type ServerOS string
 
 const (
-	// ServerOSLinux represents Linux operating system
-	ServerOSLinux ServerOS = "linux"
-	// ServerOSWindows represents Windows operating system
-	ServerOSWindows ServerOS = "windows"
-	// ServerOSMacOS represents macOS operating system
+	// Linux distributions
+	ServerOSUbuntu     ServerOS = "ubuntu"
+	ServerOSDebian     ServerOS = "debian"
+	ServerOSCentOS     ServerOS = "centos"
+	ServerOSRockyLinux ServerOS = "rocky"
+	ServerOSAlmaLinux  ServerOS = "alma"
+	ServerOSFedora     ServerOS = "fedora"
+	ServerOSRHEL       ServerOS = "rhel"
+
+	// Windows
+	ServerOSWindowsServer2016 ServerOS = "windows-server-2016"
+	ServerOSWindowsServer2019 ServerOS = "windows-server-2019"
+	ServerOSWindowsServer2022 ServerOS = "windows-server-2022"
+
+	// macOS
 	ServerOSMacOS ServerOS = "macos"
+
+	// Generic fallbacks
+	ServerOSLinux   ServerOS = "linux"
+	ServerOSWindows ServerOS = "windows"
 )
 
 // Server represents a physical or virtual server in the infrastructure
@@ -39,7 +53,7 @@ type Server struct {
 	Description string       `json:"description" gorm:"type:text" example:"Production web server"`
 	IPAddress   string       `json:"ip_address" gorm:"type:varchar(45);not null;uniqueIndex" validate:"required,ip" example:"192.168.1.100"`
 	Hostname    string       `json:"hostname" gorm:"type:varchar(255)" example:"web01.example.com"`
-	OS          ServerOS     `json:"os" gorm:"type:varchar(50);not null" validate:"required,oneof=linux windows macos" example:"linux"`
+	OS          ServerOS     `json:"os" gorm:"type:varchar(50);not null" validate:"required" example:"ubuntu"`
 	OSVersion   string       `json:"os_version" gorm:"type:varchar(100)" example:"Ubuntu 22.04 LTS"`
 	CPUCores    int          `json:"cpu_cores" gorm:"type:int;not null" validate:"required,min=1" example:"8"`
 	CPUModel    string       `json:"cpu_model" gorm:"type:varchar(255)" example:"Intel Xeon E5-2680 v4"`
@@ -49,9 +63,23 @@ type Server struct {
 	Tags        []string     `json:"tags" gorm:"type:jsonb" example:"production,web,nginx"`
 	Location    string       `json:"location" gorm:"type:varchar(255)" example:"DC-US-EAST-1"`
 	Provider    string       `json:"provider" gorm:"type:varchar(100)" example:"AWS"`
-	CreatedAt   time.Time    `json:"created_at" gorm:"autoCreateTime" example:"2024-01-01T00:00:00Z"`
-	UpdatedAt   time.Time    `json:"updated_at" gorm:"autoUpdateTime" example:"2024-01-01T00:00:00Z"`
-	DeletedAt   *time.Time   `json:"deleted_at,omitempty" gorm:"index" swaggertype:"string" example:"2024-01-01T00:00:00Z"`
+
+	// SSH Connection Configuration
+	SSHPort     int    `json:"ssh_port" gorm:"type:int;default:22" example:"22"`
+	SSHUser     string `json:"ssh_user" gorm:"type:varchar(100)" example:"root"`
+	SSHPassword string `json:"ssh_password,omitempty" gorm:"type:varchar(255)" swaggerignore:"true"` // Encrypted
+	SSHKeyPath  string `json:"ssh_key_path,omitempty" gorm:"type:varchar(500)" example:"/path/to/key.pem"`
+
+	// SSH Tunnel Configuration (for private servers)
+	TunnelEnabled bool   `json:"tunnel_enabled" gorm:"type:boolean;default:false" example:"false"`
+	TunnelHost    string `json:"tunnel_host,omitempty" gorm:"type:varchar(255)" example:"bastion.example.com"`
+	TunnelPort    int    `json:"tunnel_port,omitempty" gorm:"type:int;default:22" example:"22"`
+	TunnelUser    string `json:"tunnel_user,omitempty" gorm:"type:varchar(100)" example:"tunnel-user"`
+	TunnelKeyPath string `json:"tunnel_key_path,omitempty" gorm:"type:varchar(500)" example:"/path/to/tunnel-key.pem"`
+
+	CreatedAt time.Time  `json:"created_at" gorm:"autoCreateTime" example:"2024-01-01T00:00:00Z"`
+	UpdatedAt time.Time  `json:"updated_at" gorm:"autoUpdateTime" example:"2024-01-01T00:00:00Z"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" gorm:"index" swaggertype:"string" example:"2024-01-01T00:00:00Z"`
 }
 
 // TableName specifies the table name for Server model
@@ -75,29 +103,15 @@ type ServerMetrics struct {
 
 // ServerRepository defines the interface for server data persistence
 type ServerRepository interface {
-	// Create creates a new server record
 	Create(ctx context.Context, server *Server) error
-
-	// GetByID retrieves a server by its ID
 	GetByID(ctx context.Context, id string) (*Server, error)
-
-	// GetByIPAddress retrieves a server by its IP address
 	GetByIPAddress(ctx context.Context, ip string) (*Server, error)
-
-	// List retrieves all servers with pagination and filtering
 	List(ctx context.Context, filter ServerFilter) ([]*Server, int64, error)
-
-	// Update updates an existing server
 	Update(ctx context.Context, server *Server) error
-
-	// Delete soft deletes a server
 	Delete(ctx context.Context, id string) error
-
-	// UpdateStatus updates only the status of a server
 	UpdateStatus(ctx context.Context, id string, status ServerStatus) error
 }
 
-// ServerFilter represents filtering options for server queries
 type ServerFilter struct {
 	Status   ServerStatus `json:"status,omitempty"`
 	OS       ServerOS     `json:"os,omitempty"`
@@ -108,26 +122,12 @@ type ServerFilter struct {
 	PageSize int          `json:"page_size" validate:"min=1,max=100"`
 }
 
-// ServerUsecase defines the business logic for server management
 type ServerUsecase interface {
-	// CreateServer creates a new server with validation
 	CreateServer(ctx context.Context, server *Server) error
-
-	// GetServer retrieves a server by ID
 	GetServer(ctx context.Context, id string) (*Server, error)
-
-	// ListServers retrieves servers with filtering and pagination
 	ListServers(ctx context.Context, filter ServerFilter) ([]*Server, int64, error)
-
-	// UpdateServer updates server information
 	UpdateServer(ctx context.Context, server *Server) error
-
-	// DeleteServer soft deletes a server
 	DeleteServer(ctx context.Context, id string) error
-
-	// GetServerMetrics retrieves real-time metrics for a server
 	GetServerMetrics(ctx context.Context, serverID string) (*ServerMetrics, error)
-
-	// HealthCheck performs a health check on a server
 	HealthCheck(ctx context.Context, serverID string) (bool, error)
 }

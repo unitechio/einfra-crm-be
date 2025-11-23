@@ -119,6 +119,122 @@ type K8sCondition struct {
 	Message            string    `json:"message,omitempty" example:"Deployment has minimum availability"`
 }
 
+// K8sConfigMap represents a Kubernetes ConfigMap
+// @Description Kubernetes ConfigMap
+type K8sConfigMap struct {
+	Name      string            `json:"name" example:"game-config"`
+	Namespace string            `json:"namespace" example:"default"`
+	ClusterID string            `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Data      map[string]string `json:"data"`
+	CreatedAt time.Time         `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sSecret represents a Kubernetes Secret
+// @Description Kubernetes Secret
+type K8sSecret struct {
+	Name      string            `json:"name" example:"db-secret"`
+	Namespace string            `json:"namespace" example:"default"`
+	ClusterID string            `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Type      string            `json:"type" example:"Opaque"`
+	Data      map[string]string `json:"data,omitempty"` // Base64 encoded values
+	CreatedAt time.Time         `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sIngress represents a Kubernetes Ingress
+// @Description Kubernetes Ingress
+type K8sIngress struct {
+	Name      string           `json:"name" example:"web-ingress"`
+	Namespace string           `json:"namespace" example:"default"`
+	ClusterID string           `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Rules     []K8sIngressRule `json:"rules"`
+	CreatedAt time.Time        `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+type K8sIngressRule struct {
+	Host  string           `json:"host" example:"example.com"`
+	Paths []K8sIngressPath `json:"paths"`
+}
+
+type K8sIngressPath struct {
+	Path        string `json:"path" example:"/api"`
+	PathType    string `json:"path_type" example:"Prefix"`
+	ServiceName string `json:"service_name" example:"api-service"`
+	ServicePort int32  `json:"service_port" example:"80"`
+}
+
+// K8sStatefulSet represents a Kubernetes StatefulSet
+// @Description Kubernetes StatefulSet
+type K8sStatefulSet struct {
+	Name          string    `json:"name" example:"web"`
+	Namespace     string    `json:"namespace" example:"default"`
+	ClusterID     string    `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Replicas      int32     `json:"replicas" example:"3"`
+	ReadyReplicas int32     `json:"ready_replicas" example:"3"`
+	ServiceName   string    `json:"service_name" example:"nginx"`
+	CreatedAt     time.Time `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sDaemonSet represents a Kubernetes DaemonSet
+// @Description Kubernetes DaemonSet
+type K8sDaemonSet struct {
+	Name                   string    `json:"name" example:"fluentd"`
+	Namespace              string    `json:"namespace" example:"kube-system"`
+	ClusterID              string    `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	DesiredNumberScheduled int32     `json:"desired_number_scheduled" example:"5"`
+	NumberReady            int32     `json:"number_ready" example:"5"`
+	CreatedAt              time.Time `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sJob represents a Kubernetes Job
+// @Description Kubernetes Job
+type K8sJob struct {
+	Name        string    `json:"name" example:"pi"`
+	Namespace   string    `json:"namespace" example:"default"`
+	ClusterID   string    `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Completions int32     `json:"completions" example:"1"`
+	Succeeded   int32     `json:"succeeded" example:"1"`
+	Failed      int32     `json:"failed" example:"0"`
+	CreatedAt   time.Time `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sCronJob represents a Kubernetes CronJob
+// @Description Kubernetes CronJob
+type K8sCronJob struct {
+	Name             string     `json:"name" example:"hello"`
+	Namespace        string     `json:"namespace" example:"default"`
+	ClusterID        string     `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Schedule         string     `json:"schedule" example:"*/1 * * * *"`
+	Suspend          bool       `json:"suspend" example:"false"`
+	LastScheduleTime *time.Time `json:"last_schedule_time,omitempty"`
+	CreatedAt        time.Time  `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sPV represents a Kubernetes PersistentVolume
+// @Description Kubernetes PersistentVolume
+type K8sPV struct {
+	Name          string    `json:"name" example:"pv0003"`
+	ClusterID     string    `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Capacity      string    `json:"capacity" example:"5Gi"`
+	AccessModes   []string  `json:"access_modes" example:"ReadWriteOnce"`
+	ReclaimPolicy string    `json:"reclaim_policy" example:"Recycle"`
+	Status        string    `json:"status" example:"Available"`
+	ClaimRef      string    `json:"claim_ref,omitempty" example:"default/myclaim"`
+	CreatedAt     time.Time `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
+// K8sPVC represents a Kubernetes PersistentVolumeClaim
+// @Description Kubernetes PersistentVolumeClaim
+type K8sPVC struct {
+	Name        string    `json:"name" example:"myclaim"`
+	Namespace   string    `json:"namespace" example:"default"`
+	ClusterID   string    `json:"cluster_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Status      string    `json:"status" example:"Bound"`
+	Volume      string    `json:"volume" example:"pv0003"`
+	Capacity    string    `json:"capacity" example:"5Gi"`
+	AccessModes []string  `json:"access_modes" example:"ReadWriteOnce"`
+	CreatedAt   time.Time `json:"created_at" example:"2024-01-01T00:00:00Z"`
+}
+
 // K8sNode represents a Kubernetes node
 // @Description Kubernetes node information
 type K8sNode struct {
@@ -204,4 +320,52 @@ type KubernetesUsecase interface {
 	// Node Management
 	ListNodes(ctx context.Context, clusterID string) ([]*K8sNode, error)
 	GetNode(ctx context.Context, clusterID, name string) (*K8sNode, error)
+
+	// ConfigMap Management
+	ListConfigMaps(ctx context.Context, clusterID, namespace string) ([]*K8sConfigMap, error)
+	GetConfigMap(ctx context.Context, clusterID, namespace, name string) (*K8sConfigMap, error)
+	CreateConfigMap(ctx context.Context, clusterID string, configMap interface{}) error
+	DeleteConfigMap(ctx context.Context, clusterID, namespace, name string) error
+
+	// Secret Management
+	ListSecrets(ctx context.Context, clusterID, namespace string) ([]*K8sSecret, error)
+	GetSecret(ctx context.Context, clusterID, namespace, name string) (*K8sSecret, error)
+	CreateSecret(ctx context.Context, clusterID string, secret interface{}) error
+	DeleteSecret(ctx context.Context, clusterID, namespace, name string) error
+
+	// Ingress Management
+	ListIngresses(ctx context.Context, clusterID, namespace string) ([]*K8sIngress, error)
+	GetIngress(ctx context.Context, clusterID, namespace, name string) (*K8sIngress, error)
+	CreateIngress(ctx context.Context, clusterID string, ingress interface{}) error
+	DeleteIngress(ctx context.Context, clusterID, namespace, name string) error
+
+	// StatefulSet Management
+	ListStatefulSets(ctx context.Context, clusterID, namespace string) ([]*K8sStatefulSet, error)
+	GetStatefulSet(ctx context.Context, clusterID, namespace, name string) (*K8sStatefulSet, error)
+	CreateStatefulSet(ctx context.Context, clusterID string, statefulSet interface{}) error
+	DeleteStatefulSet(ctx context.Context, clusterID, namespace, name string) error
+
+	// DaemonSet Management
+	ListDaemonSets(ctx context.Context, clusterID, namespace string) ([]*K8sDaemonSet, error)
+	GetDaemonSet(ctx context.Context, clusterID, namespace, name string) (*K8sDaemonSet, error)
+	CreateDaemonSet(ctx context.Context, clusterID string, daemonSet interface{}) error
+	DeleteDaemonSet(ctx context.Context, clusterID, namespace, name string) error
+
+	// Job Management
+	ListJobs(ctx context.Context, clusterID, namespace string) ([]*K8sJob, error)
+	GetJob(ctx context.Context, clusterID, namespace, name string) (*K8sJob, error)
+	CreateJob(ctx context.Context, clusterID string, job interface{}) error
+	DeleteJob(ctx context.Context, clusterID, namespace, name string) error
+
+	// CronJob Management
+	ListCronJobs(ctx context.Context, clusterID, namespace string) ([]*K8sCronJob, error)
+	GetCronJob(ctx context.Context, clusterID, namespace, name string) (*K8sCronJob, error)
+	CreateCronJob(ctx context.Context, clusterID string, cronJob interface{}) error
+	DeleteCronJob(ctx context.Context, clusterID, namespace, name string) error
+
+	// PV/PVC Management
+	ListPVs(ctx context.Context, clusterID string) ([]*K8sPV, error)
+	GetPV(ctx context.Context, clusterID, name string) (*K8sPV, error)
+	ListPVCs(ctx context.Context, clusterID, namespace string) ([]*K8sPVC, error)
+	GetPVC(ctx context.Context, clusterID, namespace, name string) (*K8sPVC, error)
 }

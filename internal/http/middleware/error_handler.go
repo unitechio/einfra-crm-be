@@ -1,4 +1,3 @@
-
 package middleware
 
 import (
@@ -7,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
-	"github.com/unitechio/einfra-be/internal/errorx"
+	"github.com/unitechio/einfra-be/pkg/errorx"
 )
 
 // ErrorHandler is a middleware to handle errors encountered during requests.
@@ -57,11 +56,12 @@ func formatValidationError(err validator.FieldError) string {
 		return "Please provide a valid email address."
 	case "min":
 		return "This field must be at least " + err.Param() + " characters long."
-	case "max":		return "This field must not exceed " + err.Param() + " characters."
-    case "gte":
-        return "This field must be greater than or equal to " + err.Param() + "."
-    case "lte":
-        return "This field must be less than or equal to " + err.Param() + "."
+	case "max":
+		return "This field must not exceed " + err.Param() + " characters."
+	case "gte":
+		return "This field must be greater than or equal to " + err.Param() + "."
+	case "lte":
+		return "This field must be less than or equal to " + err.Param() + "."
 	default:
 		return "This field is invalid."
 	}

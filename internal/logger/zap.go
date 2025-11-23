@@ -1,4 +1,3 @@
-
 package logger
 
 import (
@@ -236,7 +235,6 @@ func (l *zapLogger) logMessage(ctx context.Context, level zapcore.Level, msg str
 	}
 }
 
-
 func (l *zapLogger) Debug(ctx context.Context, msg string, fields ...LogField) {
 	l.logMessage(ctx, zapcore.DebugLevel, msg, fields...)
 }
@@ -311,7 +309,6 @@ func HTTPMiddleware(log Logger) gin.HandlerFunc {
 			bodyData, _ = ProcessLargeBody(bodyBytes, requestID)
 		}
 
-		// Log start of the request
 		log.Info(ctx, "Request started",
 			LogField{Key: "http.request.method", Value: c.Request.Method},
 			LogField{Key: "http.request.path", Value: c.Request.URL.Path},
